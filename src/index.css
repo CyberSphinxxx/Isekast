@@ -1,0 +1,10 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg-background-primary: #1e1e2e;
+    --text-accent: #cba6f7;
+  }
+}
