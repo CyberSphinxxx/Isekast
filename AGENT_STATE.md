@@ -14,3 +14,6 @@
 - [x] Phase 10: Library, progress, and collections polish
 - [x] Phase 11: App-level polish & update mechanism
 - [x] Phase 12: Packaging & QA pass
+- [x] Phase 13: UI Overhaul
+- [x] Phase 14: Data Integration & State Binding
+- [x] Phase 15: Streaming Dashboard & API Debugging

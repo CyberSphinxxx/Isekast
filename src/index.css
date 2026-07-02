@@ -4,7 +4,100 @@
 
 @layer base {
   :root {
-    --bg-background-primary: #1e1e2e;
-    --text-accent: #cba6f7;
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+    --card: 240 10% 3.9%;
+    --card-foreground: 0 0% 98%;
+    --popover: 240 10% 3.9%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 240 5.9% 10%;
+    --secondary: 240 3.7% 15.9%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 3.7% 15.9%;
+    --muted-foreground: 240 5% 64.9%;
+    --accent: 240 3.7% 15.9%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 3.7% 15.9%;
+    --input: 240 3.7% 15.9%;
+    --ring: 240 4.9% 83.9%;
+    --radius: 0.5rem;
+  }
+  
+  [data-theme="dracula"] {
+    --background: 231 15% 18%;
+    --foreground: 60 30% 96%;
+    --card: 231 15% 18%;
+    --card-foreground: 60 30% 96%;
+    --popover: 231 15% 18%;
+    --popover-foreground: 60 30% 96%;
+    --primary: 326 100% 74%;
+    --primary-foreground: 231 15% 18%;
+    --secondary: 231 15% 25%;
+    --secondary-foreground: 60 30% 96%;
+    --muted: 231 15% 25%;
+    --muted-foreground: 231 15% 65%;
+    --accent: 231 15% 25%;
+    --accent-foreground: 60 30% 96%;
+    --destructive: 0 100% 67%;
+    --destructive-foreground: 60 30% 96%;
+    --border: 231 15% 25%;
+    --input: 231 15% 25%;
+    --ring: 326 100% 74%;
+  }
+
+  [data-theme="nord"] {
+    --background: 220 16% 22%;
+    --foreground: 218 27% 92%;
+    --card: 220 16% 22%;
+    --card-foreground: 218 27% 92%;
+    --popover: 220 16% 22%;
+    --popover-foreground: 218 27% 92%;
+    --primary: 193 43% 67%;
+    --primary-foreground: 220 16% 22%;
+    --secondary: 222 16% 28%;
+    --secondary-foreground: 218 27% 92%;
+    --muted: 222 16% 28%;
+    --muted-foreground: 218 20% 75%;
+    --accent: 222 16% 28%;
+    --accent-foreground: 218 27% 92%;
+    --destructive: 354 42% 56%;
+    --destructive-foreground: 218 27% 92%;
+    --border: 222 16% 28%;
+    --input: 222 16% 28%;
+    --ring: 193 43% 67%;
+  }
+
+  [data-theme="rose"] {
+    --background: 249 22% 12%;
+    --foreground: 275 14% 89%;
+    --card: 249 22% 12%;
+    --card-foreground: 275 14% 89%;
+    --popover: 249 22% 12%;
+    --popover-foreground: 275 14% 89%;
+    --primary: 343 79% 73%;
+    --primary-foreground: 249 22% 12%;
+    --secondary: 251 16% 22%;
+    --secondary-foreground: 275 14% 89%;
+    --muted: 251 16% 22%;
+    --muted-foreground: 269 11% 70%;
+    --accent: 251 16% 22%;
+    --accent-foreground: 275 14% 89%;
+    --destructive: 343 79% 73%;
+    --destructive-foreground: 275 14% 89%;
+    --border: 251 16% 22%;
+    --input: 251 16% 22%;
+    --ring: 343 79% 73%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
   }
 }

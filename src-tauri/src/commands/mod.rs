@@ -10,30 +10,34 @@ pub async fn get_media_items(db: tauri::State<'_, Database>) -> Result<Vec<Media
 }
 
 #[tauri::command]
-pub fn save_tmdb_token(token: &str) -> Result<(), String> {
-    secure::set_tmdb_token(token)
+pub fn save_tmdb_token(app: tauri::AppHandle, token: String) -> Result<(), String> {
+    secure::set_tmdb_token(&app, &token)
 }
 
 #[tauri::command]
-pub fn get_tmdb_token_status() -> Result<bool, String> {
-    match secure::get_tmdb_token() {
+pub fn get_tmdb_token_status(app: tauri::AppHandle) -> Result<bool, String> {
+    match secure::get_tmdb_token(&app) {
         Ok(Some(token)) => Ok(!token.is_empty()),
         Ok(None) => Ok(false),
-        Err(e) => Err(e),
+        Err(e) => {
+            eprintln!("Token status error: {}", e);
+            Ok(false)
+        }
     }
 }
 
 #[tauri::command]
-pub fn delete_tmdb_token() -> Result<(), String> {
-    secure::delete_tmdb_token()
+pub fn delete_tmdb_token(app: tauri::AppHandle) -> Result<(), String> {
+    secure::delete_tmdb_token(&app)
 }
 
 #[tauri::command]
 pub async fn search_tmdb(
+    app: tauri::AppHandle,
     query: &str,
     db: tauri::State<'_, Database>,
 ) -> Result<Vec<MediaItem>, String> {
-    let token = secure::get_tmdb_token()?.unwrap_or_default();
+    let token = secure::get_tmdb_token(&app)?.unwrap_or_default();
     if token.is_empty() {
         return Err("No TMDB token found".to_string());
     }
@@ -206,4 +210,103 @@ pub async fn get_media_progress(
     db: tauri::State<'_, crate::db::Database>,
 ) -> Result<Option<crate::db::repository::MediaProgress>, String> {
     db.get_progress(&id).await
+}
+
+#[tauri::command]
+pub async fn get_trending_anime(app: tauri::AppHandle) -> Result<Vec<MediaItem>, String> {
+    let token = secure::get_tmdb_token(&app)?.unwrap_or_default();
+    if token.is_empty() {
+        return Err("No TMDB token found".to_string());
+    }
+    let tmdb_res = tmdb::get_trending_anime(&token).await?;
+
+    let mut items = Vec::new();
+    for res in tmdb_res.results {
+        // Just return it transiently since it's for discovery dashboard, no need to cache aggressively unless requested.
+        let media_type = res.media_type.unwrap_or_else(|| "tv".to_string());
+        items.push(MediaItem {
+            id: res.id.to_string(), // TMDB ID directly for frontend
+            r#type: media_type,
+            external_ids: Some(serde_json::json!({ "tmdb": res.id }).to_string()),
+            title: res.title.unwrap_or_else(|| res.name.unwrap_or_default()),
+            alt_titles: None,
+            overview: res.overview,
+            poster_path: res.poster_path,
+            backdrop_path: res.backdrop_path,
+            genres: None,
+            status: None,
+            source_provider: Some("tmdb".to_string()),
+            metadata: None,
+            cached_at: None,
+            stale_after: None,
+        });
+    }
+    Ok(items)
+}
+
+#[tauri::command]
+pub async fn get_trending_movies(app: tauri::AppHandle) -> Result<Vec<MediaItem>, String> {
+    let token = secure::get_tmdb_token(&app)?.unwrap_or_default();
+    if token.is_empty() {
+        return Err("No TMDB token found".to_string());
+    }
+    let tmdb_res = tmdb::get_trending(&token).await?;
+
+    let mut items = Vec::new();
+    for res in tmdb_res.results {
+        let media_type = res.media_type.unwrap_or_else(|| "movie".to_string());
+        items.push(MediaItem {
+            id: res.id.to_string(),
+            r#type: media_type,
+            external_ids: Some(serde_json::json!({ "tmdb": res.id }).to_string()),
+            title: res.title.unwrap_or_else(|| res.name.unwrap_or_default()),
+            alt_titles: None,
+            overview: res.overview,
+            poster_path: res.poster_path,
+            backdrop_path: res.backdrop_path,
+            genres: None,
+            status: None,
+            source_provider: Some("tmdb".to_string()),
+            metadata: None,
+            cached_at: None,
+            stale_after: None,
+        });
+    }
+    Ok(items)
+}
+
+#[tauri::command]
+pub async fn get_popular_manga() -> Result<Vec<MediaItem>, String> {
+    let md_res = mangadex::get_popular_manga().await?;
+
+    let mut items = Vec::new();
+    for res in md_res.data {
+        let title = res
+            .attributes
+            .title
+            .get("en")
+            .or_else(|| res.attributes.title.values().next())
+            .cloned()
+            .unwrap_or_else(|| "Unknown Title".to_string());
+
+        let overview = res.attributes.description.get("en").cloned();
+
+        items.push(MediaItem {
+            id: res.id.to_string(),
+            r#type: "manga".to_string(),
+            external_ids: Some(serde_json::json!({ "mangadex": res.id }).to_string()),
+            title,
+            alt_titles: None,
+            overview,
+            poster_path: None,
+            backdrop_path: None,
+            genres: None,
+            status: res.attributes.status,
+            source_provider: Some("mangadex".to_string()),
+            metadata: None,
+            cached_at: None,
+            stale_after: None,
+        });
+    }
+    Ok(items)
 }

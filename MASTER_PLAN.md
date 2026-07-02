@@ -273,4 +273,56 @@ Everything else (settings, cache, library) lives in the plain local SQLite datab
 
 * **Scope:** Tauri bundler configuration for all three targets; an explicit offline QA pass (airplane mode: confirm library browsing, cached metadata, downloaded content, and playback of downloaded content all work with zero network); confirm no telemetry or unexpected network calls beyond the declared providers (TMDB, MangaDex, extension manifest index, extension-declared endpoints) — a network log review, not just a code read-through.
 * **Acceptance criteria:** installers/binaries build clean for all three platforms; the offline QA checklist passes in full; a network capture during a full offline-library session shows zero unexpected outbound requests.
-```
+
+# FEATURE INJECTION: Scalable Multi-Theme Architecture, Routing & UI Overhaul
+
+Your backend, native Rust IPC commands, and local SQLite data layers are verified and functional. Your new objective is to perform a comprehensive UI/UX overhaul of the React frontend, implementing a scalable multi-theme architecture, proper navigation routing, and designing the core layouts.
+
+You must strictly adhere to the `.agents/project-rules.md` file. Specifically: **Zero hardcoded styling, and strict adherence to Tailwind CSS variables.** Build components using raw Tailwind CSS, `clsx`, `tailwind-merge`, and Headless UI / Radix primitives (the `shadcn/ui` pattern).
+
+## Step 1: Tailwind Multi-Theme System Configuration
+Implement a data-attribute-driven theme system. 
+1. **Update `tailwind.config.ts`:** Map core colors to CSS variables (e.g., `background: "hsl(var(--background))"`).
+2. **Global CSS (`src/index.css`):** Create the default theme (`:root`) and define the `[data-theme="dracula"]`, `[data-theme="nord"]`, and `[data-theme="rose"]` attributes using raw HSL values for deep-dark, glassmorphic aesthetics.
+3. **Theme Switcher Context:** Create a `ThemeProvider` context in React that manages the theme state (persisted to SQLite) and applies the `data-theme` attribute to the document root.
+
+## Step 2: Implement Core Navigation (CRITICAL)
+Currently, all components are dumped onto a single screen. You must fix this:
+1. Implement a client-side router (e.g., `react-router-dom` or a robust state-based tab system).
+2. Create a persistent **Left Navigation Sidebar**. This sidebar must have distinct tabs/links for: **Library**, **Discover**, **Extensions**, and **Settings**.
+3. The main content area to the right of the sidebar will render the active page.
+
+## Step 3: Tab-by-Tab Layout Execution
+Execute the following layouts for each main section.
+
+### 1. Search & Discovery (The Command Palette)
+* **Execution:** Build a global, centralized Command Palette modal triggered via `Ctrl+K` or a search button in the Discover tab. When opened, blur the background app (`backdrop-blur-md bg-background/80`). 
+
+### 2. Local Library & Dashboard
+* **Execution:** 
+  * **Top Row:** A horizontal scrolling "Continue Watching/Reading" section with 16:9 thumbnails and a primary-colored progress bar.
+  * **Grid View:** A dense grid of posters. Apply `hover:scale-105` and show a primary-colored "Play/Read" icon strictly on hover.
+
+### 3. Anime, Movie, & TV Details Page
+* **Execution:** 
+  * **Hero Banner:** Edge-to-edge backdrop image with a gradient overlay.
+  * **Metadata Split:** Poster overlaps the banner on the left. Title, description, and pill-shaped tags (`bg-secondary text-secondary-foreground rounded-full px-3 py-1`) on the right.
+  * **Episodes List:** Clean vertical scroll area below the fold.
+
+### 4. Manga Reader
+* **Execution:** 
+  * **Canvas:** Pitch black background (`bg-black`).
+  * **Overlays:** Glassmorphic Top/Bottom nav bars that fade out when clicking the center.
+  * **Controls:** Right-side slide-out drawer for reader settings (Webtoon vs. Paginated, LTR vs. RTL).
+
+### 5. Settings & Extensions Tab
+* **Execution:** 
+  * **Appearance Pane:** Add a UI element utilizing the `useTheme` hook to toggle between themes.
+  * **Extensions Grid:** Display installed extensions as modular cards with toggle switches.
+  * **Security:** Mask the TMDB API key input. Include a dynamic status indicator for the OS Keychain.
+
+### 6. Media Player Overlay (Video)
+* **Execution:** Since the native `mpv` sidecar handles rendering, build the React UI as a transparent overlay layer strictly for controls (bottom bar, subtitle toggle), disappearing after 3 seconds of inactivity.
+
+## Step 4: Verification
+Run `npm run build` frequently. Update `AGENT_STATE.md` with a new `[ ] Phase 13: UI Overhaul` checkbox, and check it off only when the routing is in place and all layouts are styled and mapped to dynamic CSS variables.

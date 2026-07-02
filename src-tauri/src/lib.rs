@@ -35,7 +35,10 @@ pub fn run() {
             commands::submit_cloudflare_bypass_result,
             commands::download_media,
             commands::update_media_progress,
-            commands::get_media_progress
+            commands::get_media_progress,
+            commands::get_trending_anime,
+            commands::get_trending_movies,
+            commands::get_popular_manga
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
