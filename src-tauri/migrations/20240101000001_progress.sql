@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTS media_progress (
+    id TEXT PRIMARY KEY,
+    progress_json TEXT NOT NULL,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
