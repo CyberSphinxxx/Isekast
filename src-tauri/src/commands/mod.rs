@@ -483,6 +483,32 @@ pub async fn run_extension(
     media_id: String,
     db: tauri::State<'_, crate::db::Database>,
 ) -> Result<String, String> {
+    if extension_id == "local-source" {
+        let downloads = sqlx::query_as::<_, crate::db::repository::DownloadItem>(
+            "SELECT * FROM download WHERE media_item_id = ?"
+        )
+        .bind(&media_id)
+        .fetch_all(&db.pool)
+        .await
+        .map_err(|e| e.to_string())?;
+        
+        let mut streams = Vec::new();
+        for d in downloads {
+            let title = d.episode_or_chapter_id.unwrap_or_else(|| "Local File".to_string());
+            let encoded_path = urlencoding::encode(&d.local_file_path);
+            let url = format!("isekast-stream://localhost/{}", encoded_path);
+            
+            streams.push(serde_json::json!({
+                "name": "Local Source",
+                "title": title,
+                "url": url
+            }));
+        }
+        
+        let res = serde_json::json!({ "streams": streams });
+        return Ok(res.to_string());
+    }
+
     let ext = db.get_extension_by_id(&extension_id).await?.ok_or_else(|| "Extension not found".to_string())?;
     let script = ext.script_content.unwrap_or_default();
     crate::extensions::execute_scraper(&script, &r#type, &media_id).await

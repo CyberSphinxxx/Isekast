@@ -42,6 +42,36 @@ export default function VideoPlayer({ src: _src, onClose }: VideoPlayerProps) {
         };
     }, [showSettings]);
 
+    useEffect(() => {
+        let isMpv = true; // Assume MPV is the player
+        if (isMpv && _src) {
+            let targetPath = _src;
+            
+            // If it's our custom local protocol, parse the raw absolute OS path for native MPV speed
+            if (_src.startsWith("isekast-stream://localhost/")) {
+                targetPath = decodeURIComponent(_src.replace("isekast-stream://localhost/", ""));
+                console.log("Spawning MPV with native local file:", targetPath);
+            } else {
+                console.log("Spawning MPV with network URL:", targetPath);
+            }
+
+            import("@tauri-apps/plugin-shell").then(({ Command }) => {
+                const mpvCommand = Command.create("mpv", [
+                    targetPath,
+                    "--fs", // Fullscreen
+                    "--ontop", // Keep on top
+                ]);
+                
+                mpvCommand.execute().then((res: any) => {
+                    console.log("MPV exited:", res.code);
+                    handleClose();
+                }).catch((err: any) => {
+                    console.error("Failed to launch MPV:", err);
+                });
+            });
+        }
+    }, [_src]);
+
     return (
         <div 
             className="absolute inset-0 z-50 pointer-events-none flex flex-col justify-between"

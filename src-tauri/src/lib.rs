@@ -9,11 +9,32 @@ pub mod player;
 pub mod secure;
 pub mod sync;
 pub mod downloads;
+pub mod local_source;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .register_uri_scheme_protocol("isekast-stream", |_app, request| {
+            let uri = request.uri().to_string();
+            let prefix = "isekast-stream://localhost/";
+            let path_str = if uri.starts_with(prefix) {
+                &uri[prefix.len()..]
+            } else {
+                &uri
+            };
+            
+            let decoded_path = urlencoding::decode(path_str)
+                .unwrap_or_else(|_| std::borrow::Cow::Borrowed(path_str))
+                .into_owned();
+                
+            let data = std::fs::read(&decoded_path).unwrap_or_default();
+            
+            tauri::http::Response::builder()
+                .header("Access-Control-Allow-Origin", "*")
+                .body(data)
+                .unwrap()
+        })
         .setup(|app| {
             let handle = app.handle().clone();
             tauri::async_runtime::block_on(async move {
@@ -54,7 +75,8 @@ pub fn run() {
             commands::get_downloads,
             commands::fetch_extension_registry,
             commands::install_extension,
-            commands::get_extensions
+            commands::get_extensions,
+            local_source::scan_local_media
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

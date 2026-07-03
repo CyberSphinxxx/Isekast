@@ -21,3 +21,4 @@
 - [x] Phase 17: Download Manager
 - [x] Phase 18: Extension Registry
 - [x] Phase 19: Anti-bot Fallback Chain
+- [ ] Phase 20: Local Source Provider
