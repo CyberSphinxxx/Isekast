@@ -138,3 +138,44 @@ pub async fn get_trending(token: &str) -> Result<TmdbSearchResponse, String> {
         Err(format!("TMDB API Error: {}", status))
     }
 }
+
+#[derive(Deserialize, Debug)]
+pub struct TmdbExternalIds {
+    pub imdb_id: Option<String>,
+    pub tvdb_id: Option<i64>,
+}
+
+pub async fn get_external_ids(media_type: &str, id: i64, token: &str) -> Result<TmdbExternalIds, String> {
+    let token = token.trim();
+    let client = Client::new();
+    let url = format!("https://api.themoviedb.org/3/{}/{}/external_ids", if media_type == "movie" { "movie" } else { "tv" }, id);
+    let mut req = client.get(&url);
+
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        reqwest::header::ACCEPT,
+        reqwest::header::HeaderValue::from_static("application/json")
+    );
+
+    if token.len() > 60 {
+        headers.insert(
+            reqwest::header::AUTHORIZATION,
+            reqwest::header::HeaderValue::from_str(&format!("Bearer {}", token)).unwrap()
+        );
+        req = req.headers(headers);
+    } else {
+        req = req.headers(headers).query(&[("api_key", token)]);
+    }
+
+    let res = req
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if res.status().is_success() {
+        res.json::<TmdbExternalIds>().await.map_err(|e| e.to_string())
+    } else {
+        Err(format!("TMDB API Error: {}", res.status()))
+    }
+}
+

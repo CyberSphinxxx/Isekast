@@ -189,20 +189,44 @@ async fn download_manga(
     let manga_dir = dir.join("Manga").join(title).join(id);
     fs::create_dir_all(&manga_dir).map_err(|e| e.to_string())?;
 
-    for i in 1..=10 {
+    // Fetch page URLs from MangaDex at-home API
+    let page_urls = crate::metadata::mangadex::get_chapter_pages(id).await?;
+    let total = page_urls.len();
+
+    if total == 0 {
+        return Err("No pages found for this chapter".into());
+    }
+
+    let client = reqwest::Client::builder()
+        .user_agent("Isekast/0.1.0")
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    for (i, url) in page_urls.iter().enumerate() {
         tokio::select! {
             _ = cancel_rx.recv() => {
                 return Err("Cancelled".into());
             }
-            _ = tokio::time::sleep(tokio::time::Duration::from_millis(500)) => {
-                let progress = (i as f64 / 10.0) * 100.0;
+            result = client.get(url).send() => {
+                let progress = ((i + 1) as f64 / total as f64) * 100.0;
                 let _ = app.emit("download-progress", DownloadProgressPayload {
                     id: id.to_string(),
                     progress_percentage: progress,
-                    speed: "250 KB/s".into(),
+                    speed: format!("Page {}/{}", i + 1, total),
                     status: "active".into(),
                 });
-                fs::write(manga_dir.join(format!("{}.jpg", i)), b"mock image data").unwrap_or_default();
+
+                match result {
+                    Ok(resp) => {
+                        if let Ok(bytes) = resp.bytes().await {
+                            let ext = url.rsplit('.').next().unwrap_or("jpg");
+                            fs::write(manga_dir.join(format!("{}.{}", i + 1, ext)), &bytes).unwrap_or_default();
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to download page {}: {}", i + 1, e);
+                    }
+                }
             }
         }
     }
@@ -210,6 +234,7 @@ async fn download_manga(
     let details = serde_json::json!({
         "title": title,
         "chapter_id": id,
+        "pages": total,
     });
     fs::write(manga_dir.join("details.json"), details.to_string()).unwrap_or_default();
 

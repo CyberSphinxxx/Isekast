@@ -15,6 +15,16 @@ pub async fn get_media_item_by_id(id: String, db: tauri::State<'_, Database>) ->
 }
 
 #[tauri::command]
+pub async fn check_in_library(media_item_id: String, db: tauri::State<'_, Database>) -> Result<bool, String> {
+    db.check_in_library(&media_item_id).await
+}
+
+#[tauri::command]
+pub async fn toggle_in_library(media_item_id: String, in_library: bool, db: tauri::State<'_, Database>) -> Result<(), String> {
+    db.toggle_in_library(&media_item_id, in_library).await
+}
+
+#[tauri::command]
 pub fn save_tmdb_token(app: tauri::AppHandle, token: String) -> Result<(), String> {
     secure::set_tmdb_token(&app, &token)
 }
@@ -38,8 +48,7 @@ pub fn delete_tmdb_token(app: tauri::AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub fn get_anilist_auth_url() -> String {
-    // Should be from env or constants, using placeholder client ID for this implementation
-    let client_id = "12345"; 
+    let client_id = std::env::var("ANILIST_CLIENT_ID").unwrap_or_else(|_| "12345".to_string());
     format!("https://anilist.co/api/v2/oauth/authorize?client_id={}&redirect_uri=https://anilist.co/api/v2/oauth/pin&response_type=token", client_id)
 }
 
@@ -272,7 +281,17 @@ pub async fn get_media_progress(
 }
 
 #[tauri::command]
-pub async fn get_trending_anime(app: tauri::AppHandle) -> Result<Vec<MediaItem>, String> {
+pub async fn get_progress_items(
+    db: tauri::State<'_, crate::db::Database>,
+) -> Result<Vec<MediaItem>, String> {
+    db.get_progress_items().await
+}
+
+#[tauri::command]
+pub async fn get_trending_anime(
+    app: tauri::AppHandle,
+    db: tauri::State<'_, Database>,
+) -> Result<Vec<MediaItem>, String> {
     let token = secure::get_tmdb_token(&app)?.unwrap_or_default();
     if token.is_empty() {
         return Err("No TMDB token found".to_string());
@@ -281,10 +300,15 @@ pub async fn get_trending_anime(app: tauri::AppHandle) -> Result<Vec<MediaItem>,
 
     let mut items = Vec::new();
     for res in tmdb_res.results {
-        // Just return it transiently since it's for discovery dashboard, no need to cache aggressively unless requested.
         let media_type = res.media_type.unwrap_or_else(|| "tv".to_string());
-        items.push(MediaItem {
-            id: res.id.to_string(), // TMDB ID directly for frontend
+
+        let existing = db.get_media_item_by_tmdb_id(res.id).await?;
+        let id = existing
+            .map(|e| e.id)
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
+
+        let item = MediaItem {
+            id,
             r#type: media_type,
             external_ids: Some(serde_json::json!({ "tmdb": res.id }).to_string()),
             title: res.title.unwrap_or_else(|| res.name.unwrap_or_default()),
@@ -296,15 +320,21 @@ pub async fn get_trending_anime(app: tauri::AppHandle) -> Result<Vec<MediaItem>,
             status: None,
             source_provider: Some("tmdb".to_string()),
             metadata: None,
-            cached_at: None,
+            cached_at: Some(Utc::now().to_rfc3339()),
             stale_after: None,
-        });
+        };
+
+        let _ = db.upsert_media_item(&item).await;
+        items.push(item);
     }
     Ok(items)
 }
 
 #[tauri::command]
-pub async fn get_trending_movies(app: tauri::AppHandle) -> Result<Vec<MediaItem>, String> {
+pub async fn get_trending_movies(
+    app: tauri::AppHandle,
+    db: tauri::State<'_, Database>,
+) -> Result<Vec<MediaItem>, String> {
     let token = secure::get_tmdb_token(&app)?.unwrap_or_default();
     if token.is_empty() {
         return Err("No TMDB token found".to_string());
@@ -314,8 +344,14 @@ pub async fn get_trending_movies(app: tauri::AppHandle) -> Result<Vec<MediaItem>
     let mut items = Vec::new();
     for res in tmdb_res.results {
         let media_type = res.media_type.unwrap_or_else(|| "movie".to_string());
-        items.push(MediaItem {
-            id: res.id.to_string(),
+
+        let existing = db.get_media_item_by_tmdb_id(res.id).await?;
+        let id = existing
+            .map(|e| e.id)
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
+
+        let item = MediaItem {
+            id,
             r#type: media_type,
             external_ids: Some(serde_json::json!({ "tmdb": res.id }).to_string()),
             title: res.title.unwrap_or_else(|| res.name.unwrap_or_default()),
@@ -327,19 +363,29 @@ pub async fn get_trending_movies(app: tauri::AppHandle) -> Result<Vec<MediaItem>
             status: None,
             source_provider: Some("tmdb".to_string()),
             metadata: None,
-            cached_at: None,
+            cached_at: Some(Utc::now().to_rfc3339()),
             stale_after: None,
-        });
+        };
+
+        let _ = db.upsert_media_item(&item).await;
+        items.push(item);
     }
     Ok(items)
 }
 
 #[tauri::command]
-pub async fn get_popular_manga() -> Result<Vec<MediaItem>, String> {
+pub async fn get_popular_manga(
+    db: tauri::State<'_, Database>,
+) -> Result<Vec<MediaItem>, String> {
     let md_res = mangadex::get_popular_manga().await?;
 
     let mut items = Vec::new();
     for res in md_res.data {
+        let existing = db.get_media_item_by_mangadex_id(&res.id).await?;
+        let id = existing
+            .map(|e| e.id)
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
+
         let title = res
             .attributes
             .title
@@ -361,8 +407,8 @@ pub async fn get_popular_manga() -> Result<Vec<MediaItem>, String> {
             }
         }
 
-        items.push(MediaItem {
-            id: res.id.to_string(),
+        let item = MediaItem {
+            id,
             r#type: "manga".to_string(),
             external_ids: Some(serde_json::json!({ "mangadex": res.id }).to_string()),
             title,
@@ -374,9 +420,12 @@ pub async fn get_popular_manga() -> Result<Vec<MediaItem>, String> {
             status: res.attributes.status,
             source_provider: Some("mangadex".to_string()),
             metadata: None,
-            cached_at: None,
+            cached_at: Some(Utc::now().to_rfc3339()),
             stale_after: None,
-        });
+        };
+
+        let _ = db.upsert_media_item(&item).await;
+        items.push(item);
     }
     Ok(items)
 }
@@ -421,44 +470,21 @@ pub struct ExtensionManifest {
 
 #[tauri::command]
 pub async fn fetch_extension_registry() -> Result<Vec<ExtensionManifest>, String> {
-    Ok(vec![
-        ExtensionManifest {
-            id: "com.isekast.mock.video".into(),
-            name: "Mock Anime Source".into(),
-            version: "1.0.0".into(),
-            resources: vec!["stream".into()],
-            types: vec!["anime".into(), "movie".into(), "series".into()],
-            idPrefixes: Some(vec!["tmdb:".into()]),
-            script_url: "https://mock.isekast.com/anime.js".into(),
-        },
-        ExtensionManifest {
-            id: "com.isekast.mock.manga".into(),
-            name: "Mock Manga Source".into(),
-            version: "1.0.0".into(),
-            resources: vec!["manga".into()],
-            types: vec!["manga".into()],
-            idPrefixes: Some(vec!["mangadex:".into()]),
-            script_url: "https://mock.isekast.com/manga.js".into(),
-        }
-    ])
+    Ok(vec![])
 }
 
 #[tauri::command]
 pub async fn install_extension(
     manifest: ExtensionManifest,
-    db: tauri::State<'_, crate::db::Database>,
+    db: tauri::State<'_, Database>,
 ) -> Result<(), String> {
-    let script = format!(
-        r#"
-        async function getStreams(type, id) {{
-            if (type === 'manga') {{
-                return {{ chapters: [ {{ id: 'ch1', title: 'Chapter 1' }} ] }};
-            }}
-            return {{ streams: [ {{ url: 'http://test.m3u8', title: '1080p' }} ] }};
-        }}
-        "#
-    );
-    
+    let script_content = reqwest::get(&manifest.script_url)
+        .await
+        .map_err(|e| e.to_string())?
+        .text()
+        .await
+        .map_err(|e| e.to_string())?;
+
     let ext = crate::db::repository::Extension {
         id: manifest.id,
         name: manifest.name,
@@ -467,11 +493,19 @@ pub async fn install_extension(
         resource_types: Some(manifest.resources.join(",")),
         enabled: true,
         last_updated: Some(chrono::Utc::now().to_rfc3339()),
-        script_content: Some(script),
+        script_content: Some(script_content),
     };
-    
+
     db.upsert_extension(&ext).await?;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn uninstall_extension(
+    id: String,
+    db: tauri::State<'_, Database>,
+) -> Result<(), String> {
+    db.delete_extension(&id).await
 }
 
 #[tauri::command]
@@ -518,3 +552,206 @@ pub async fn run_extension(
     let script = ext.script_content.unwrap_or_default();
     crate::extensions::execute_scraper(&script, &r#type, &media_id).await
 }
+
+#[tauri::command]
+pub async fn install_stremio_addon(
+    manifest_url: String,
+    db: tauri::State<'_, Database>,
+) -> Result<(), String> {
+    let resp = reqwest::get(&manifest_url)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let manifest: crate::db::repository::StremioManifest = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse manifest: {}", e))?;
+
+    let transport_url = manifest_url.trim_end_matches("/manifest.json").to_string();
+
+    let addon = crate::db::repository::StremioAddon {
+        id: manifest.id.clone(),
+        transport_url,
+        manifest_json: serde_json::to_string(&manifest).unwrap(),
+        is_active: true,
+    };
+
+    db.upsert_stremio_addon(&addon).await?;
+
+    Ok(())
+}
+#[tauri::command]
+pub async fn uninstall_stremio_addon(
+    id: String,
+    db: tauri::State<'_, Database>,
+) -> Result<(), String> {
+    db.delete_stremio_addon(&id).await
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct StremioStream {
+    pub name: Option<String>,
+    pub title: Option<String>,
+    pub url: Option<String>,
+}
+
+#[tauri::command]
+pub async fn fetch_stremio_streams(
+    media_type: String,
+    media_id: String,
+    season: Option<u32>,
+    episode: Option<u32>,
+    db: tauri::State<'_, Database>,
+    app: tauri::AppHandle,
+) -> Result<Vec<StremioStream>, String> {
+    let addons = db.get_stremio_addons().await?;
+    let active_addons = addons.into_iter().filter(|a| a.is_active).collect::<Vec<_>>();
+
+    let mut handles = Vec::new();
+
+    let media_item_opt = db.get_media_item_by_id(&media_id).await?;
+    
+    let mut resolved_id = media_id.clone();
+    
+    if let Some(item) = media_item_opt {
+        if let Some(ext_ids_str) = item.external_ids {
+            if let Ok(ext_ids) = serde_json::from_str::<serde_json::Value>(&ext_ids_str) {
+                if let Some(imdb) = ext_ids.get("imdb").and_then(|v| v.as_str()) {
+                    resolved_id = imdb.to_string();
+                } else if let Some(tmdb) = ext_ids.get("tmdb") {
+                    let tmdb_id = tmdb.as_u64().or_else(|| tmdb.as_str().and_then(|s| s.parse().ok()));
+                    
+                    if let Some(n) = tmdb_id {
+                        // Try fetching external ids to get IMDb id since most stremio addons require it
+                        if let Ok(Some(token)) = crate::secure::get_tmdb_token(&app) {
+                            if let Ok(external) = crate::metadata::tmdb::get_external_ids(&media_type, n as i64, &token).await {
+                                if let Some(imdb) = external.imdb_id {
+                                    resolved_id = imdb;
+                                } else {
+                                    resolved_id = format!("tmdb:{}", n);
+                                }
+                            } else {
+                                resolved_id = format!("tmdb:{}", n);
+                            }
+                        } else {
+                            resolved_id = format!("tmdb:{}", n);
+                        }
+                    } else if let Some(s) = tmdb.as_str() {
+                        resolved_id = format!("tmdb:{}", s);
+                    }
+                }
+            }
+        }
+    }
+
+    for addon in active_addons {
+        let manifest: crate::db::repository::StremioManifest = 
+            serde_json::from_str(&addon.manifest_json).unwrap();
+        
+        let supports_type = manifest.types.contains(&media_type) || manifest.types.contains(&"other".to_string());
+        
+        let has_stream_resource = manifest.resources.iter().any(|r| {
+            if let Some(r_str) = r.as_str() {
+                r_str == "stream"
+            } else if let Some(r_obj) = r.as_object() {
+                r_obj.get("name").and_then(|n| n.as_str()) == Some("stream")
+            } else {
+                false
+            }
+        });
+
+        if supports_type && has_stream_resource {
+            let url = if media_type == "series" && season.is_some() && episode.is_some() {
+                format!("{}/stream/{}/{}:{}:{}.json", addon.transport_url, media_type, resolved_id, season.unwrap(), episode.unwrap())
+            } else {
+                format!("{}/stream/{}/{}.json", addon.transport_url, media_type, resolved_id)
+            };
+            println!("Fetching Stremio stream: {}", url);
+            let handle = tokio::spawn(async move {
+                let resp = reqwest::get(&url).await.ok()?;
+                println!("Stremio response status for {}: {}", url, resp.status());
+                let json: serde_json::Value = resp.json().await.ok()?;
+                let streams = json.get("streams")?.as_array()?.clone();
+                println!("Stremio streams found for {}: {}", url, streams.len());
+                
+                let mut parsed_streams = Vec::new();
+                for s in streams {
+                    if let Ok(st) = serde_json::from_value::<StremioStream>(s.clone()) {
+                        parsed_streams.push(st);
+                    } else {
+                        println!("Failed to parse stream: {:?}", s);
+                    }
+                }
+                Some(parsed_streams)
+            });
+            handles.push(handle);
+        } else {
+            println!("Addon {} skipped. supports_type: {}, has_stream_resource: {}", addon.transport_url, supports_type, has_stream_resource);
+        }
+    }
+
+    let mut all_streams = Vec::new();
+    for handle in handles {
+        if let Ok(Some(streams)) = handle.await {
+            all_streams.extend(streams);
+        }
+    }
+
+    Ok(all_streams)
+}
+
+#[tauri::command]
+pub async fn get_stremio_addons(
+    db: tauri::State<'_, Database>,
+) -> Result<Vec<crate::db::repository::StremioAddon>, String> {
+    db.get_stremio_addons().await
+}
+
+#[tauri::command]
+pub async fn toggle_stremio_addon(
+    id: String,
+    is_active: bool,
+    db: tauri::State<'_, Database>,
+) -> Result<(), String> {
+    db.toggle_stremio_addon(&id, is_active).await
+}
+
+#[derive(serde::Serialize)]
+pub struct MangaChapter {
+    pub id: String,
+    pub chapter: Option<String>,
+    pub title: Option<String>,
+    pub scanlation_group: Option<String>,
+    pub publish_at: Option<String>,
+    pub pages: Option<u32>,
+}
+
+#[tauri::command]
+pub async fn fetch_manga_chapters(
+    manga_id: String,
+) -> Result<Vec<MangaChapter>, String> {
+    let resp = mangadex::get_chapters(&manga_id).await?;
+    let chapters: Vec<MangaChapter> = resp.data.into_iter().map(|ch| {
+        let group = ch.relationships.iter()
+            .find(|r| r.r#type == "scanlation_group")
+            .and_then(|r| r.attributes.as_ref())
+            .and_then(|a| a.name.clone());
+        MangaChapter {
+            id: ch.id,
+            chapter: ch.attributes.chapter,
+            title: ch.attributes.title,
+            scanlation_group: group,
+            publish_at: ch.attributes.publish_at,
+            pages: ch.attributes.pages,
+        }
+    }).collect();
+    Ok(chapters)
+}
+
+#[tauri::command]
+pub async fn fetch_manga_pages(
+    chapter_id: String,
+) -> Result<Vec<String>, String> {
+    mangadex::get_chapter_pages(&chapter_id).await
+}
+

@@ -15,6 +15,7 @@ pub mod local_source;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_shell::init())
         .register_uri_scheme_protocol("isekast-stream", |_app, request| {
             let uri = request.uri().to_string();
             let prefix = "isekast-stream://localhost/";
@@ -50,6 +51,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_media_items,
             commands::get_media_item_by_id,
+            commands::check_in_library,
+            commands::toggle_in_library,
             commands::save_tmdb_token,
             commands::get_tmdb_token_status,
             commands::delete_tmdb_token,
@@ -61,6 +64,7 @@ pub fn run() {
             commands::download_media,
             commands::update_media_progress,
             commands::get_media_progress,
+            commands::get_progress_items,
             commands::get_trending_anime,
             commands::get_trending_movies,
             commands::get_popular_manga,
@@ -76,7 +80,15 @@ pub fn run() {
             commands::get_downloads,
             commands::fetch_extension_registry,
             commands::install_extension,
+            commands::uninstall_extension,
             commands::get_extensions,
+            commands::install_stremio_addon,
+            commands::uninstall_stremio_addon,
+            commands::fetch_stremio_streams,
+            commands::get_stremio_addons,
+            commands::toggle_stremio_addon,
+            commands::fetch_manga_chapters,
+            commands::fetch_manga_pages,
             local_source::scan_local_media
         ])
         .run(tauri::generate_context!())

@@ -73,7 +73,7 @@ export default function Discover() {
 
   return (
     <div className="relative min-h-screen pb-16">
-      {/* Fake Search Bar at very top */}
+      {/* Search Trigger */}
       <div className="absolute top-4 left-0 right-0 z-50 flex justify-center px-4 pointer-events-none">
         <button 
           onClick={openSearch}
@@ -104,7 +104,7 @@ export default function Discover() {
             <p className="text-lg text-foreground/80 max-w-2xl line-clamp-3 drop-shadow-md">{heroItem.overview}</p>
             <div className="flex gap-4 mt-4">
               <button 
-                onClick={() => navigate(`/details/${heroItem.id}`)}
+                onClick={() => navigate(heroItem.type === 'manga' ? `/manga/${heroItem.id}` : `/details/${heroItem.type}/${heroItem.id}`)}
                 className="flex items-center gap-2 bg-primary text-primary-foreground px-8 py-3 rounded-md font-bold hover:bg-primary/90 transition-colors shadow-lg shadow-primary/20"
               >
                 <Play className="w-5 h-5 fill-current" />
@@ -128,15 +128,15 @@ export default function Discover() {
 
       {/* Content Rows */}
       <div className="px-8 max-w-7xl mx-auto mt-12 space-y-12 relative z-10">
-        <MediaRow title="Trending Anime" items={trendingAnime} loading={loading} getImageUrl={getImageUrl} />
-        <MediaRow title="Popular Movies & TV" items={popularMovies} loading={loading} getImageUrl={getImageUrl} />
-        <MediaRow title="Top Manga Updates" items={topManga} loading={loading} getImageUrl={getImageUrl} />
+        <MediaRow title="Trending Anime" items={trendingAnime} loading={loading} getImageUrl={getImageUrl} navigate={navigate} />
+        <MediaRow title="Popular Movies & TV" items={popularMovies} loading={loading} getImageUrl={getImageUrl} navigate={navigate} />
+        <MediaRow title="Top Manga Updates" items={topManga} loading={loading} getImageUrl={getImageUrl} navigate={navigate} />
       </div>
     </div>
   );
 }
 
-function MediaRow({ title, items, loading, getImageUrl }: { title: string, items: MediaItem[], loading: boolean, getImageUrl: (item: MediaItem, type?: "poster"|"backdrop") => string }) {
+function MediaRow({ title, items, loading, getImageUrl, navigate }: { title: string, items: MediaItem[], loading: boolean, getImageUrl: (item: MediaItem, type?: "poster"|"backdrop") => string, navigate: (path: string) => void }) {
   if (!loading && items.length === 0) return null;
 
   return (
@@ -156,7 +156,7 @@ function MediaRow({ title, items, loading, getImageUrl }: { title: string, items
             items.map((item) => (
               <div 
                 key={item.id} 
-                onClick={() => window.location.href = `/details/${item.id}`}
+                onClick={() => navigate(item.type === 'manga' ? `/manga/${item.id}` : `/details/${item.type}/${item.id}`)}
                 className="min-w-[160px] sm:min-w-[200px] aspect-[2/3] shrink-0 group/card cursor-pointer relative rounded-md overflow-hidden bg-muted snap-start shadow-sm hover:shadow-lg transition-all hover:-translate-y-1 duration-300"
               >
                 <img src={getImageUrl(item)} alt={item.title} className="w-full h-full object-cover transition-transform duration-500 group-hover/card:scale-105" />

@@ -2,6 +2,26 @@ use super::Database;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct StremioAddon {
+    pub id: String,
+    pub transport_url: String,
+    pub manifest_json: String,
+    pub is_active: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct StremioManifest {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub description: Option<String>,
+    pub types: Vec<String>,
+    pub id_prefixes: Option<Vec<String>>,
+    pub resources: Vec<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct MediaProgress {
     pub id: String,
     pub progress_json: String,
@@ -151,6 +171,15 @@ impl Database {
         .map_err(|e| e.to_string())
     }
 
+    pub async fn get_progress_items(&self) -> Result<Vec<MediaItem>, String> {
+        sqlx::query_as::<_, MediaItem>(
+            "SELECT m.* FROM media_item m JOIN media_progress p ON m.id = p.id ORDER BY p.updated_at DESC"
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| e.to_string())
+    }
+
     pub async fn update_progress(&self, id: &str, progress_json: &str) -> Result<(), String> {
         sqlx::query(
             r#"
@@ -167,6 +196,46 @@ impl Database {
         .await
         .map_err(|e| e.to_string())?;
 
+        Ok(())
+    }
+
+    pub async fn check_in_library(&self, media_item_id: &str) -> Result<bool, String> {
+        let count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM media_item_collection WHERE media_item_id = ? AND collection_id = 'default_library'"
+        )
+        .bind(media_item_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+        Ok(count.0 > 0)
+    }
+
+    pub async fn toggle_in_library(&self, media_item_id: &str, in_library: bool) -> Result<(), String> {
+        sqlx::query(
+            "INSERT OR IGNORE INTO collection (id, name, created_at) VALUES ('default_library', 'Library', CURRENT_TIMESTAMP)"
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+        if in_library {
+            sqlx::query(
+                "INSERT OR IGNORE INTO media_item_collection (media_item_id, collection_id) VALUES (?, 'default_library')"
+            )
+            .bind(media_item_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        } else {
+            sqlx::query(
+                "DELETE FROM media_item_collection WHERE media_item_id = ? AND collection_id = 'default_library'"
+            )
+            .bind(media_item_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        }
         Ok(())
     }
 
@@ -285,6 +354,54 @@ impl Database {
 
     pub async fn delete_extension(&self, id: &str) -> Result<(), String> {
         sqlx::query("DELETE FROM extension WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub async fn upsert_stremio_addon(&self, addon: &StremioAddon) -> Result<(), String> {
+        sqlx::query(
+            r#"
+            INSERT INTO stremio_addons (id, transport_url, manifest_json, is_active)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                transport_url = excluded.transport_url,
+                manifest_json = excluded.manifest_json,
+                is_active = excluded.is_active
+            "#,
+        )
+        .bind(&addon.id)
+        .bind(&addon.transport_url)
+        .bind(&addon.manifest_json)
+        .bind(addon.is_active)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+        Ok(())
+    }
+
+    pub async fn get_stremio_addons(&self) -> Result<Vec<StremioAddon>, String> {
+        sqlx::query_as::<_, StremioAddon>("SELECT * FROM stremio_addons")
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    pub async fn toggle_stremio_addon(&self, id: &str, is_active: bool) -> Result<(), String> {
+        sqlx::query("UPDATE stremio_addons SET is_active = ? WHERE id = ?")
+            .bind(is_active)
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub async fn delete_stremio_addon(&self, id: &str) -> Result<(), String> {
+        sqlx::query("DELETE FROM stremio_addons WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
             .await

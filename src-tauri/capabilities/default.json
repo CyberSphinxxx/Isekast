@@ -6,6 +6,16 @@
   "permissions": [
     "core:default",
     "opener:default",
-    "shell:default"
+    "shell:default",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "mpv",
+          "cmd": "mpv",
+          "args": true
+        }
+      ]
+    }
   ]
 }

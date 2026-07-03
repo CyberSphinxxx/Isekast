@@ -6,13 +6,14 @@ import { ThemeProvider } from "./components/ThemeProvider";
 import Layout from "./components/Layout";
 import Library from "./pages/Library";
 import Discover from "./pages/Discover";
-import Details from "./pages/Details";
+import MediaDetails from "./pages/MediaDetails";
+import MangaDetails from "./pages/MangaDetails";
 import Settings from "./pages/Settings";
 import Extensions from "./pages/Extensions";
 import Downloads from "./pages/Downloads";
 import { CommandPalette } from "./components/CommandPalette";
-import VideoPlayer from "./components/VideoPlayer";
-import MangaReader from "./components/MangaReader";
+import MangaReader from "./pages/MangaReader";
+import Player from "./pages/Player";
 
 const router = createBrowserRouter([
   {
@@ -28,8 +29,12 @@ const router = createBrowserRouter([
         element: <Discover />,
       },
       {
-        path: "/details/:id",
-        element: <Details />,
+        path: "/details/:mediaType/:id",
+        element: <MediaDetails />,
+      },
+      {
+        path: "/manga/:id",
+        element: <MangaDetails />,
       },
       {
         path: "/extensions",
@@ -45,12 +50,18 @@ const router = createBrowserRouter([
       },
     ],
   },
+  {
+    path: "/play/:mediaType/:id/:episodeId",
+    element: <Player />,
+  },
+  {
+    path: "/read/:mangaId/:chapterId",
+    element: <MangaReader />,
+  },
 ]);
 
 function App() {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-  const [activeVideoUrl, setActiveVideoUrl] = useState<string | null>(null);
-  const [activeMangaPages, setActiveMangaPages] = useState<string[] | null>(null);
   const [showCloudflareToast, setShowCloudflareToast] = useState(false);
 
   useEffect(() => {
@@ -69,10 +80,8 @@ function App() {
 
   useEffect(() => {
     const handleOpenSearch = () => setCommandPaletteOpen(true);
-    const handlePlayVideo = (e: any) => setActiveVideoUrl(e.detail);
     
     window.addEventListener('open-search-modal', handleOpenSearch);
-    window.addEventListener('play-video', handlePlayVideo);
 
     const down = (e: KeyboardEvent) => {
       if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
@@ -84,7 +93,6 @@ function App() {
     
     return () => {
       window.removeEventListener('open-search-modal', handleOpenSearch);
-      window.removeEventListener('play-video', handlePlayVideo);
       document.removeEventListener("keydown", down);
     };
   }, []);
@@ -106,14 +114,6 @@ function App() {
     <ThemeProvider defaultTheme="default" storageKey="isekast-theme">
       <RouterProvider router={router} />
       <CommandPalette open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} />
-      
-      {activeVideoUrl && (
-        <VideoPlayer src={activeVideoUrl} onClose={() => setActiveVideoUrl(null)} />
-      )}
-      
-      {activeMangaPages && (
-        <MangaReader pages={activeMangaPages} onClose={() => setActiveMangaPages(null)} />
-      )}
 
       {showCloudflareToast && (
         <div className="fixed bottom-4 right-4 bg-card border border-border shadow-lg p-4 rounded-lg flex items-center gap-3 z-50 animate-in slide-in-from-bottom-5">

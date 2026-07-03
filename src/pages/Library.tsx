@@ -7,12 +7,17 @@ import type { MediaItem } from "../types";
 export default function Library() {
   const navigate = useNavigate();
   const [items, setItems] = useState<MediaItem[]>([]);
+  const [continueItems, setContinueItems] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    invoke<MediaItem[]>("get_media_items")
-      .then((data) => {
-        setItems(data);
+    Promise.all([
+      invoke<MediaItem[]>("get_media_items"),
+      invoke<MediaItem[]>("get_progress_items")
+    ])
+      .then(([allData, progressData]) => {
+        setItems(allData);
+        setContinueItems(progressData);
         setLoading(false);
       })
       .catch((err) => {
@@ -33,8 +38,6 @@ export default function Library() {
     return <div className="p-8 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
   }
 
-  // Placeholder for items in progress
-  const continueItems = items.slice(0, 5); 
   const gridItems = items;
 
   return (
@@ -45,7 +48,7 @@ export default function Library() {
           {continueItems.map(item => (
             <div 
               key={item.id} 
-              onClick={() => navigate(`/details/${item.id}`)}
+              onClick={() => navigate(item.type === 'manga' ? `/manga/${item.id}` : `/details/${item.type}/${item.id}`)}
               className="min-w-[280px] group cursor-pointer relative rounded-md overflow-hidden bg-muted snap-start"
             >
               <img src={getImageUrl(item)} alt={item.title} className="w-full h-40 object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
@@ -72,7 +75,7 @@ export default function Library() {
           {gridItems.map(item => (
             <div 
               key={item.id} 
-              onClick={() => navigate(`/details/${item.id}`)}
+              onClick={() => navigate(item.type === 'manga' ? `/manga/${item.id}` : `/details/${item.type}/${item.id}`)}
               className="relative group cursor-pointer rounded-md overflow-hidden bg-muted aspect-[2/3] transition-transform duration-300 hover:scale-105 hover:z-10 shadow-md"
             >
               <img src={getImageUrl(item)} alt={item.title} className="w-full h-full object-cover transition-opacity group-hover:opacity-60" />
