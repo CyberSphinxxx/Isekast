@@ -32,6 +32,50 @@ pub fn delete_tmdb_token(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn get_anilist_auth_url() -> String {
+    // Should be from env or constants, using placeholder client ID for this implementation
+    let client_id = "12345"; 
+    format!("https://anilist.co/api/v2/oauth/authorize?client_id={}&redirect_uri=https://anilist.co/api/v2/oauth/pin&response_type=token", client_id)
+}
+
+#[tauri::command]
+pub fn save_anilist_token(token: String) -> Result<(), String> {
+    secure::set_anilist_token(&token)
+}
+
+#[tauri::command]
+pub fn get_anilist_token_status() -> Result<bool, String> {
+    match secure::get_anilist_token() {
+        Ok(Some(token)) => Ok(!token.is_empty()),
+        Ok(None) => Ok(false),
+        Err(e) => {
+            eprintln!("Anilist Token status error: {}", e);
+            Ok(false)
+        }
+    }
+}
+
+#[tauri::command]
+pub fn delete_anilist_token() -> Result<(), String> {
+    secure::delete_anilist_token()
+}
+
+#[tauri::command]
+pub async fn sync_anilist_to_local(app: tauri::AppHandle, db: tauri::State<'_, Database>) -> Result<(), String> {
+    crate::sync::sync_anilist_to_local(&app, &db).await
+}
+
+#[tauri::command]
+pub async fn push_progress_to_anilist(anilist_id: i64, progress: i64) -> Result<(), String> {
+    crate::sync::push_progress_to_anilist(anilist_id, progress).await
+}
+
+#[tauri::command]
+pub async fn get_anilist_viewer() -> Result<Option<serde_json::Value>, String> {
+    crate::sync::get_anilist_viewer().await
+}
+
+#[tauri::command]
 pub async fn search_tmdb(
     app: tauri::AppHandle,
     query: &str,
@@ -109,6 +153,17 @@ pub async fn search_mangadex(
 
         let overview = res.attributes.description.get("en").cloned();
 
+        let mut poster_path = None;
+        for rel in &res.relationships {
+            if rel.r#type == "cover_art" {
+                if let Some(ref attrs) = rel.attributes {
+                    if let Some(ref file_name) = attrs.file_name {
+                        poster_path = Some(format!("https://uploads.mangadex.org/covers/{}/{}.256.jpg", res.id, file_name));
+                    }
+                }
+            }
+        }
+
         let item = MediaItem {
             id,
             r#type: "manga".to_string(),
@@ -116,7 +171,7 @@ pub async fn search_mangadex(
             title,
             alt_titles: None,
             overview,
-            poster_path: None,
+            poster_path,
             backdrop_path: None,
             genres: None,
             status: res.attributes.status,
@@ -168,21 +223,20 @@ pub async fn map_anime_ids(
     Ok(item)
 }
 
-#[tauri::command]
-pub fn run_extension(script: &str, media_id: &str) -> Result<String, String> {
-    crate::extensions::execute_scraper(script, media_id)
-}
+// Removed old run_extension sync logic
 
 #[tauri::command]
 pub fn submit_cloudflare_bypass_result(
     app: tauri::AppHandle,
     label: String,
     html: String,
+    cookie: String,
+    user_agent: String,
     state: tauri::State<'_, crate::downloader::AntibotState>,
 ) {
     use tauri::Manager;
     if let Some((_, tx)) = state.pending_requests.remove(&label) {
-        let _ = tx.send(html);
+        let _ = tx.send((html, cookie, user_agent));
     }
 
     if let Some(window) = app.get_webview_window(&label) {
@@ -291,6 +345,17 @@ pub async fn get_popular_manga() -> Result<Vec<MediaItem>, String> {
 
         let overview = res.attributes.description.get("en").cloned();
 
+        let mut poster_path = None;
+        for rel in &res.relationships {
+            if rel.r#type == "cover_art" {
+                if let Some(ref attrs) = rel.attributes {
+                    if let Some(ref file_name) = attrs.file_name {
+                        poster_path = Some(format!("https://uploads.mangadex.org/covers/{}/{}.256.jpg", res.id, file_name));
+                    }
+                }
+            }
+        }
+
         items.push(MediaItem {
             id: res.id.to_string(),
             r#type: "manga".to_string(),
@@ -298,7 +363,7 @@ pub async fn get_popular_manga() -> Result<Vec<MediaItem>, String> {
             title,
             alt_titles: None,
             overview,
-            poster_path: None,
+            poster_path,
             backdrop_path: None,
             genres: None,
             status: res.attributes.status,
@@ -309,4 +374,116 @@ pub async fn get_popular_manga() -> Result<Vec<MediaItem>, String> {
         });
     }
     Ok(items)
+}
+
+#[tauri::command]
+pub async fn start_download(
+    app: tauri::AppHandle,
+    manager: tauri::State<'_, crate::downloads::DownloadManager>,
+    id: String,
+    title: String,
+    url: String,
+    r#type: String,
+) -> Result<(), String> {
+    crate::downloads::start_download(app, manager, id, title, url, r#type).await
+}
+
+#[tauri::command]
+pub fn cancel_download(
+    manager: tauri::State<'_, crate::downloads::DownloadManager>,
+    id: String,
+) -> Result<(), String> {
+    crate::downloads::cancel_download(manager, id)
+}
+
+#[tauri::command]
+pub async fn get_downloads(
+    db: tauri::State<'_, crate::db::Database>,
+) -> Result<Vec<crate::db::repository::DownloadItem>, String> {
+    db.get_downloads().await
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct ExtensionManifest {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub resources: Vec<String>,
+    pub types: Vec<String>,
+    pub idPrefixes: Option<Vec<String>>,
+    pub script_url: String,
+}
+
+#[tauri::command]
+pub async fn fetch_extension_registry() -> Result<Vec<ExtensionManifest>, String> {
+    Ok(vec![
+        ExtensionManifest {
+            id: "com.isekast.mock.video".into(),
+            name: "Mock Anime Source".into(),
+            version: "1.0.0".into(),
+            resources: vec!["stream".into()],
+            types: vec!["anime".into(), "movie".into(), "series".into()],
+            idPrefixes: Some(vec!["tmdb:".into()]),
+            script_url: "https://mock.isekast.com/anime.js".into(),
+        },
+        ExtensionManifest {
+            id: "com.isekast.mock.manga".into(),
+            name: "Mock Manga Source".into(),
+            version: "1.0.0".into(),
+            resources: vec!["manga".into()],
+            types: vec!["manga".into()],
+            idPrefixes: Some(vec!["mangadex:".into()]),
+            script_url: "https://mock.isekast.com/manga.js".into(),
+        }
+    ])
+}
+
+#[tauri::command]
+pub async fn install_extension(
+    manifest: ExtensionManifest,
+    db: tauri::State<'_, crate::db::Database>,
+) -> Result<(), String> {
+    let script = format!(
+        r#"
+        async function getStreams(type, id) {{
+            if (type === 'manga') {{
+                return {{ chapters: [ {{ id: 'ch1', title: 'Chapter 1' }} ] }};
+            }}
+            return {{ streams: [ {{ url: 'http://test.m3u8', title: '1080p' }} ] }};
+        }}
+        "#
+    );
+    
+    let ext = crate::db::repository::Extension {
+        id: manifest.id,
+        name: manifest.name,
+        version: manifest.version,
+        manifest_url: Some(manifest.script_url),
+        resource_types: Some(manifest.resources.join(",")),
+        enabled: true,
+        last_updated: Some(chrono::Utc::now().to_rfc3339()),
+        script_content: Some(script),
+    };
+    
+    db.upsert_extension(&ext).await?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_extensions(
+    db: tauri::State<'_, crate::db::Database>,
+) -> Result<Vec<crate::db::repository::Extension>, String> {
+    db.get_extensions().await
+}
+
+#[tauri::command]
+pub async fn run_extension(
+    extension_id: String,
+    r#type: String,
+    media_id: String,
+    db: tauri::State<'_, crate::db::Database>,
+) -> Result<String, String> {
+    let ext = db.get_extension_by_id(&extension_id).await?.ok_or_else(|| "Extension not found".to_string())?;
+    let script = ext.script_content.unwrap_or_default();
+    crate::extensions::execute_scraper(&script, &r#type, &media_id).await
 }

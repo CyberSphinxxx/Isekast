@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from "react-router-dom";
-import { Library, Compass, Blocks, Settings } from "lucide-react";
+import { Library, Compass, Blocks, Settings, Download } from "lucide-react";
 import { cn } from "../lib/utils";
 
 export default function Layout() {
@@ -7,6 +7,7 @@ export default function Layout() {
     { to: "/", icon: Library, label: "Library" },
     { to: "/discover", icon: Compass, label: "Discover" },
     { to: "/extensions", icon: Blocks, label: "Extensions" },
+    { to: "/downloads", icon: Download, label: "Downloads" },
     { to: "/settings", icon: Settings, label: "Settings" },
   ];
 

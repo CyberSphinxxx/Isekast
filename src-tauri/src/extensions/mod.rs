@@ -1,42 +1,55 @@
-use boa_engine::{js_string, Context, JsValue, Source};
+use rquickjs::{Context, Runtime};
 
-pub fn execute_scraper(script: &str, id: &str) -> Result<String, String> {
-    let mut context = Context::default();
-
-    // Load the scraper script
-    context
-        .eval(Source::from_bytes(script))
-        .map_err(|e| format!("Eval Error: {:?}", e))?;
-
-    // Call the expected global function `getStreams(id)`
-    let call_script = format!("getStreams('{}');", id);
-    let result = context
-        .eval(Source::from_bytes(&call_script))
-        .map_err(|e| format!("JS Error: {:?}", e))?;
-
-    // Stringify the result using JS JSON.stringify
-    let global_obj = context.global_object();
-    let json = global_obj
-        .get(js_string!("JSON"), &mut context)
-        .map_err(|e| format!("{:?}", e))?;
-    let json_obj = json
-        .as_object()
-        .ok_or_else(|| "JSON not found".to_string())?;
-
-    let stringify = json_obj
-        .get(js_string!("stringify"), &mut context)
-        .map_err(|e| format!("{:?}", e))?;
-    let stringify_fn = stringify
-        .as_callable()
-        .ok_or_else(|| "stringify not callable".to_string())?;
-
-    let json_string = stringify_fn
-        .call(&JsValue::undefined(), &[result], &mut context)
-        .map_err(|e| format!("{:?}", e))?;
-
-    if let Some(s) = json_string.as_string() {
-        Ok(s.to_std_string_escaped())
-    } else {
-        Err("Result is not a string".to_string())
+pub async fn execute_scraper(script: &str, r#type: &str, id: &str) -> Result<String, String> {
+    let script = script.to_string();
+    let type_val = r#type.to_string();
+    let id_val = id.to_string();
+    
+    let (tx, rx) = std::sync::mpsc::channel();
+    
+    std::thread::spawn(move || {
+        let rt = Runtime::new().unwrap();
+        let ctx = Context::full(&rt).unwrap();
+        
+        ctx.with(|ctx| {
+            let tx_clone = tx.clone();
+            let callback = rquickjs::Function::new(ctx.clone(), move |res: String| {
+                let _ = tx_clone.send(res);
+            }).unwrap();
+            
+            ctx.globals().set("rustCallback", callback).unwrap();
+            
+            let wrapper = format!(
+                r#"
+                {}
+                
+                async function runWrapper() {{
+                    try {{
+                        let res = await getStreams('{}', '{}');
+                        rustCallback(JSON.stringify(res));
+                    }} catch (e) {{
+                        rustCallback(JSON.stringify({{ error: e.toString() }}));
+                    }}
+                }}
+                runWrapper();
+                "#,
+                script, type_val, id_val
+            );
+            
+            let _ = ctx.eval::<(), _>(wrapper);
+            // Loop until no more jobs or error
+            loop {
+                let res = ctx.execute_pending_job();
+                let debug = format!("{:?}", res);
+                if debug.contains("false") || debug.contains("Err") {
+                    break;
+                }
+            }
+        });
+    });
+    
+    match rx.recv_timeout(std::time::Duration::from_secs(5)) {
+        Ok(res) => Ok(res),
+        Err(_) => Err("Failed to execute scraper or timed out".to_string())
     }
 }

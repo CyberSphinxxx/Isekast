@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 #[derive(Clone, Default)]
 pub struct AntibotState {
-    pub pending_requests: Arc<DashMap<String, oneshot::Sender<String>>>,
+    pub pending_requests: Arc<DashMap<String, oneshot::Sender<(String, String, String)>>>,
 }
 
 impl AntibotState {
@@ -17,7 +17,7 @@ impl AntibotState {
     }
 }
 
-pub async fn fetch_with_webview(app: AppHandle, url: String) -> Result<String, String> {
+pub async fn fetch_with_webview(app: AppHandle, url: String) -> Result<(String, String, String), String> {
     let state = app.state::<AntibotState>();
 
     let window_label = format!("antibot_{}", Uuid::new_v4().simple());
@@ -34,7 +34,9 @@ pub async fn fetch_with_webview(app: AppHandle, url: String) -> Result<String, S
                 clearInterval(checkInterval);
                 window.__TAURI__.core.invoke('submit_cloudflare_bypass_result', {{
                     label: '{}',
-                    html: document.documentElement.outerHTML
+                    html: document.documentElement.outerHTML,
+                    cookie: document.cookie,
+                    user_agent: navigator.userAgent
                 }}).catch(console.error);
             }}
         }}, 1000);
@@ -53,8 +55,8 @@ pub async fn fetch_with_webview(app: AppHandle, url: String) -> Result<String, S
     .map_err(|e| e.to_string())?;
 
     match rx.await {
-        Ok(html) => Ok(html),
-        Err(_) => Err("Failed to receive HTML from webview".to_string()),
+        Ok(result) => Ok(result),
+        Err(_) => Err("Failed to receive data from webview".to_string()),
     }
 }
 
@@ -92,4 +94,32 @@ pub async fn download_to_disk(url: &str, destination: &str) -> Result<(), String
     }
 
     Ok(())
+}
+
+pub async fn fetch_with_retry(app: AppHandle, url: String) -> Result<String, String> {
+    use reqwest::header::{COOKIE, USER_AGENT};
+    use tauri::Emitter;
+
+    let client = reqwest::Client::new();
+    
+    let res = client.get(&url).send().await.map_err(|e| e.to_string())?;
+    
+    if res.status() == 403 || res.status() == 503 {
+        let _ = app.emit("cloudflare-challenge-started", ());
+        
+        let (_html, cookie, user_agent) = fetch_with_webview(app.clone(), url.clone()).await?;
+        
+        let _ = app.emit("cloudflare-challenge-resolved", ());
+        
+        let res2 = client.get(&url)
+            .header(COOKIE, cookie)
+            .header(USER_AGENT, user_agent)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+            
+        return res2.text().await.map_err(|e| e.to_string());
+    }
+    
+    res.text().await.map_err(|e| e.to_string())
 }

@@ -3,13 +3,7 @@
   "productName": "Isekast",
   "version": "0.1.0",
   "identifier": "com.cybersphinxxx.isekast",
-  "plugins": {
-    "updater": {
-      "endpoints": [
-        "https://api.github.com/repos/CyberSphinxxx/Isekast/releases/latest"
-      ]
-    }
-  },
+  "plugins": {},
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -25,7 +19,11 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["**"]
+      }
     }
   },
   "bundle": {

@@ -5,6 +5,31 @@ use serde::{Deserialize, Serialize};
 pub struct MediaProgress {
     pub id: String,
     pub progress_json: String,
+    pub progress_episode: Option<i64>,
+    pub progress_chapter: Option<i64>,
+    pub user_score: Option<f64>,
+    pub watch_status: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct DownloadItem {
+    pub media_item_id: String,
+    pub episode_or_chapter_id: Option<String>,
+    pub local_file_path: String,
+    pub status: String,
+    pub size: Option<i64>,
+}
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct Extension {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub manifest_url: Option<String>,
+    pub resource_types: Option<String>,
+    pub enabled: bool,
+    pub last_updated: Option<String>,
+    pub script_content: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
@@ -118,7 +143,7 @@ impl Database {
 
     pub async fn get_progress(&self, id: &str) -> Result<Option<MediaProgress>, String> {
         sqlx::query_as::<_, MediaProgress>(
-            r#"SELECT id, progress_json FROM media_progress WHERE id = ?"#,
+            r#"SELECT * FROM media_progress WHERE id = ?"#,
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -142,6 +167,128 @@ impl Database {
         .await
         .map_err(|e| e.to_string())?;
 
+        Ok(())
+    }
+
+    pub async fn update_anilist_progress(
+        &self,
+        id: &str,
+        episode: Option<i64>,
+        chapter: Option<i64>,
+        score: Option<f64>,
+        status: Option<&str>,
+    ) -> Result<(), String> {
+        sqlx::query(
+            r#"
+            INSERT INTO media_progress (id, progress_json, progress_episode, progress_chapter, user_score, watch_status, updated_at)
+            VALUES (?, '{}', ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(id) DO UPDATE SET
+                progress_episode = COALESCE(excluded.progress_episode, progress_episode),
+                progress_chapter = COALESCE(excluded.progress_chapter, progress_chapter),
+                user_score = COALESCE(excluded.user_score, user_score),
+                watch_status = COALESCE(excluded.watch_status, watch_status),
+                updated_at = CURRENT_TIMESTAMP
+            "#,
+        )
+        .bind(id)
+        .bind(episode)
+        .bind(chapter)
+        .bind(score)
+        .bind(status)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+        Ok(())
+    }
+
+    pub async fn upsert_download(
+        &self,
+        media_item_id: &str,
+        episode_or_chapter_id: &str,
+        local_file_path: &str,
+        status: &str,
+        size: i64,
+    ) -> Result<(), String> {
+        sqlx::query(
+            r#"
+            INSERT INTO download (media_item_id, episode_or_chapter_id, local_file_path, status, size)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(media_item_id, episode_or_chapter_id) DO UPDATE SET
+                local_file_path = excluded.local_file_path,
+                status = excluded.status,
+                size = excluded.size
+            "#
+        )
+        .bind(media_item_id)
+        .bind(episode_or_chapter_id)
+        .bind(local_file_path)
+        .bind(status)
+        .bind(size)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+        Ok(())
+    }
+
+    pub async fn get_downloads(&self) -> Result<Vec<DownloadItem>, String> {
+        sqlx::query_as::<_, DownloadItem>("SELECT * FROM download")
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    pub async fn get_extensions(&self) -> Result<Vec<Extension>, String> {
+        sqlx::query_as::<_, Extension>("SELECT * FROM extension")
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    pub async fn get_extension_by_id(&self, id: &str) -> Result<Option<Extension>, String> {
+        sqlx::query_as::<_, Extension>("SELECT * FROM extension WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    pub async fn upsert_extension(&self, ext: &Extension) -> Result<(), String> {
+        sqlx::query(
+            r#"
+            INSERT INTO extension (id, name, version, manifest_url, resource_types, enabled, last_updated, script_content)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                version = excluded.version,
+                manifest_url = excluded.manifest_url,
+                resource_types = excluded.resource_types,
+                enabled = excluded.enabled,
+                last_updated = excluded.last_updated,
+                script_content = excluded.script_content
+            "#
+        )
+        .bind(&ext.id)
+        .bind(&ext.name)
+        .bind(&ext.version)
+        .bind(&ext.manifest_url)
+        .bind(&ext.resource_types)
+        .bind(&ext.enabled)
+        .bind(&ext.last_updated)
+        .bind(&ext.script_content)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub async fn delete_extension(&self, id: &str) -> Result<(), String> {
+        sqlx::query("DELETE FROM extension WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 }

@@ -32,3 +32,24 @@ pub fn delete_tmdb_token(app: &tauri::AppHandle) -> Result<(), String> {
     }
     Ok(())
 }
+
+pub fn set_anilist_token(token: &str) -> Result<(), String> {
+    let entry = keyring::Entry::new("isekast", "anilist_access_token").map_err(|e| e.to_string())?;
+    entry.set_password(token).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub fn get_anilist_token() -> Result<Option<String>, String> {
+    let entry = keyring::Entry::new("isekast", "anilist_access_token").map_err(|e| e.to_string())?;
+    match entry.get_password() {
+        Ok(token) => Ok(Some(token)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+pub fn delete_anilist_token() -> Result<(), String> {
+    let entry = keyring::Entry::new("isekast", "anilist_access_token").map_err(|e| e.to_string())?;
+    let _ = entry.delete_credential();
+    Ok(())
+}

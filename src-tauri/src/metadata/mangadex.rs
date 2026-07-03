@@ -11,6 +11,21 @@ pub struct MangaDexSearchResponse {
 pub struct MangaDexManga {
     pub id: String,
     pub attributes: MangaDexAttributes,
+    #[serde(default)]
+    pub relationships: Vec<MangaDexRelationship>,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct MangaDexRelationship {
+    pub id: String,
+    pub r#type: String,
+    pub attributes: Option<MangaDexRelationshipAttributes>,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct MangaDexRelationshipAttributes {
+    #[serde(rename = "fileName")]
+    pub file_name: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -29,7 +44,7 @@ pub async fn search(query: &str) -> Result<MangaDexSearchResponse, String> {
         .unwrap_or_else(|_| Client::new());
     let res = client
         .get("https://api.mangadex.org/manga")
-        .query(&[("title", query)])
+        .query(&[("title", query), ("includes[]", "cover_art")])
         .send()
         .await
         .map_err(|e| e.to_string())?;
@@ -50,7 +65,7 @@ pub async fn get_popular_manga() -> Result<MangaDexSearchResponse, String> {
         .unwrap_or_else(|_| Client::new());
     let res = client
         .get("https://api.mangadex.org/manga")
-        .query(&[("order[followedCount]", "desc"), ("limit", "15")])
+        .query(&[("order[followedCount]", "desc"), ("limit", "15"), ("includes[]", "cover_art")])
         .send()
         .await
         .map_err(|e| e.to_string())?;
