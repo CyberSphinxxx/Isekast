@@ -49,6 +49,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_media_items,
+            commands::get_media_item_by_id,
             commands::save_tmdb_token,
             commands::get_tmdb_token_status,
             commands::delete_tmdb_token,

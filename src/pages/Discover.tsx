@@ -1,9 +1,11 @@
 import { Search, Play, Plus, ChevronRight, ChevronLeft } from "lucide-react";
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useNavigate } from "react-router-dom";
 import type { MediaItem } from "../types";
 
 export default function Discover() {
+  const navigate = useNavigate();
   const [trendingAnime, setTrendingAnime] = useState<MediaItem[]>([]);
   const [popularMovies, setPopularMovies] = useState<MediaItem[]>([]);
   const [topManga, setTopManga] = useState<MediaItem[]>([]);
@@ -101,7 +103,10 @@ export default function Discover() {
             <h1 className="text-5xl font-extrabold text-foreground drop-shadow-lg max-w-3xl line-clamp-2">{heroItem.title}</h1>
             <p className="text-lg text-foreground/80 max-w-2xl line-clamp-3 drop-shadow-md">{heroItem.overview}</p>
             <div className="flex gap-4 mt-4">
-              <button className="flex items-center gap-2 bg-primary text-primary-foreground px-8 py-3 rounded-md font-bold hover:bg-primary/90 transition-colors shadow-lg shadow-primary/20">
+              <button 
+                onClick={() => navigate(`/details/${heroItem.id}`)}
+                className="flex items-center gap-2 bg-primary text-primary-foreground px-8 py-3 rounded-md font-bold hover:bg-primary/90 transition-colors shadow-lg shadow-primary/20"
+              >
                 <Play className="w-5 h-5 fill-current" />
                 Play / Details
               </button>
@@ -149,7 +154,11 @@ function MediaRow({ title, items, loading, getImageUrl }: { title: string, items
             ))
           ) : Array.isArray(items) ? (
             items.map((item) => (
-              <div key={item.id} className="min-w-[160px] sm:min-w-[200px] aspect-[2/3] shrink-0 group/card cursor-pointer relative rounded-md overflow-hidden bg-muted snap-start shadow-sm hover:shadow-lg transition-all hover:-translate-y-1 duration-300">
+              <div 
+                key={item.id} 
+                onClick={() => window.location.href = `/details/${item.id}`}
+                className="min-w-[160px] sm:min-w-[200px] aspect-[2/3] shrink-0 group/card cursor-pointer relative rounded-md overflow-hidden bg-muted snap-start shadow-sm hover:shadow-lg transition-all hover:-translate-y-1 duration-300"
+              >
                 <img src={getImageUrl(item)} alt={item.title} className="w-full h-full object-cover transition-transform duration-500 group-hover/card:scale-105" />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/0 to-transparent opacity-0 group-hover/card:opacity-100 transition-opacity duration-300">
                   <div className="absolute bottom-0 left-0 right-0 p-4">

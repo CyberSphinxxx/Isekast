@@ -1,9 +1,11 @@
 import { PlayCircle, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { useNavigate } from "react-router-dom";
 import type { MediaItem } from "../types";
 
 export default function Library() {
+  const navigate = useNavigate();
   const [items, setItems] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -41,7 +43,11 @@ export default function Library() {
         <h2 className="text-2xl font-bold mb-4">Continue</h2>
         <div className="flex gap-4 overflow-x-auto pb-4 snap-x">
           {continueItems.map(item => (
-            <div key={item.id} className="min-w-[280px] group cursor-pointer relative rounded-md overflow-hidden bg-muted snap-start">
+            <div 
+              key={item.id} 
+              onClick={() => navigate(`/details/${item.id}`)}
+              className="min-w-[280px] group cursor-pointer relative rounded-md overflow-hidden bg-muted snap-start"
+            >
               <img src={getImageUrl(item)} alt={item.title} className="w-full h-40 object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
               <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40">
                  <PlayCircle className="w-12 h-12 text-primary" />
@@ -64,7 +70,11 @@ export default function Library() {
         <h2 className="text-2xl font-bold mb-4">Your Collection</h2>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
           {gridItems.map(item => (
-            <div key={item.id} className="relative group cursor-pointer rounded-md overflow-hidden bg-muted aspect-[2/3] transition-transform duration-300 hover:scale-105 hover:z-10 shadow-md">
+            <div 
+              key={item.id} 
+              onClick={() => navigate(`/details/${item.id}`)}
+              className="relative group cursor-pointer rounded-md overflow-hidden bg-muted aspect-[2/3] transition-transform duration-300 hover:scale-105 hover:z-10 shadow-md"
+            >
               <img src={getImageUrl(item)} alt={item.title} className="w-full h-full object-cover transition-opacity group-hover:opacity-60" />
               <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40">
                 <PlayCircle className="w-14 h-14 text-primary drop-shadow-lg" />

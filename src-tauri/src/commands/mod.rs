@@ -10,6 +10,11 @@ pub async fn get_media_items(db: tauri::State<'_, Database>) -> Result<Vec<Media
 }
 
 #[tauri::command]
+pub async fn get_media_item_by_id(id: String, db: tauri::State<'_, Database>) -> Result<Option<MediaItem>, String> {
+    db.get_media_item_by_id(&id).await
+}
+
+#[tauri::command]
 pub fn save_tmdb_token(app: tauri::AppHandle, token: String) -> Result<(), String> {
     secure::set_tmdb_token(&app, &token)
 }

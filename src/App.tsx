@@ -69,7 +69,10 @@ function App() {
 
   useEffect(() => {
     const handleOpenSearch = () => setCommandPaletteOpen(true);
+    const handlePlayVideo = (e: any) => setActiveVideoUrl(e.detail);
+    
     window.addEventListener('open-search-modal', handleOpenSearch);
+    window.addEventListener('play-video', handlePlayVideo);
 
     const down = (e: KeyboardEvent) => {
       if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
@@ -81,6 +84,7 @@ function App() {
     
     return () => {
       window.removeEventListener('open-search-modal', handleOpenSearch);
+      window.removeEventListener('play-video', handlePlayVideo);
       document.removeEventListener("keydown", down);
     };
   }, []);
