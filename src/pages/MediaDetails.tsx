@@ -1,4 +1,4 @@
-import { Play, Loader2, Plus, Check } from "lucide-react";
+import { Play, Loader2, Plus, Check, MonitorPlay } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
@@ -8,6 +8,18 @@ interface StremioStream {
     name?: string;
     title?: string;
     url?: string;
+    info_hash?: string;
+}
+
+/** Returns true for URLs whose file extension is not natively playable by HTML5 <video>. */
+function isExternalFormat(url?: string): boolean {
+  if (!url) return false;
+  try {
+    const pathname = new URL(url).pathname.toLowerCase();
+    return /\.(mkv|avi|flv|wmv|mov|ts|rmvb|divx)$/.test(pathname);
+  } catch {
+    return false;
+  }
 }
 
 export default function MediaDetails() {
@@ -22,6 +34,7 @@ export default function MediaDetails() {
   const [streams, setStreams] = useState<StremioStream[]>([]);
   const [loadingStreams, setLoadingStreams] = useState(false);
   const [activeEpisode, setActiveEpisode] = useState<number | null>(null);
+  const [isDownloadingMpv, setIsDownloadingMpv] = useState(false);
 
 
   useEffect(() => {
@@ -84,9 +97,68 @@ export default function MediaDetails() {
       });
   };
 
-  const handleStreamClick = (stream: StremioStream) => {
+  const [isResolvingStream, setIsResolvingStream] = useState(false);
+
+  const handleStreamClick = async (stream: StremioStream) => {
+      let finalUrl = stream.url;
+
+      if (!finalUrl && stream.info_hash) {
+          try {
+              setIsResolvingStream(true);
+              finalUrl = await invoke<string>("stream_torrent", {
+                  infoHash: stream.info_hash,
+              });
+          } catch (e) {
+              console.error("Failed to start torrent stream:", e);
+              return;
+          } finally {
+              setIsResolvingStream(false);
+          }
+      }
+
+      if (!finalUrl) {
+          console.error("No valid stream URL found");
+          return;
+      }
+
+      // For non-browser formats, launch MPV directly instead of navigating to the HTML5 player.
+      if (isExternalFormat(finalUrl)) {
+          try {
+              await invoke("launch_external_player", {
+                  url: finalUrl,
+                  title: item?.title
+                      ? `${item.title}${activeEpisode ? ` - Episode ${activeEpisode}` : ""}`
+                      : undefined,
+              });
+          } catch (e: any) {
+              if (e === "MPV_NOT_FOUND") {
+                  try {
+                      setIsDownloadingMpv(true);
+                      await invoke("download_mpv");
+                      // Retry
+                      await invoke("launch_external_player", {
+                          url: finalUrl,
+                          title: item?.title
+                              ? `${item.title}${activeEpisode ? ` - Episode ${activeEpisode}` : ""}`
+                              : undefined,
+                      });
+                  } catch (downloadErr) {
+                      console.error("Failed to download or launch MPV after download:", downloadErr);
+                  } finally {
+                      setIsDownloadingMpv(false);
+                  }
+              } else {
+                  console.error("Failed to launch external player:", e);
+                  // Fallback: still try the built-in player
+                  navigate(`/play/${item?.type || mediaType}/${id}/${activeEpisode || 1}`, {
+                      state: { streamUrl: finalUrl, streamTitle: stream.title || stream.name }
+                  });
+              }
+          }
+          return;
+      }
       navigate(`/play/${item?.type || mediaType}/${id}/${activeEpisode || 1}`, {
-          state: { streamUrl: stream.url, streamTitle: stream.title || stream.name }
+          state: { streamUrl: finalUrl, streamTitle: stream.title || stream.name }
       });
   };
 
@@ -127,7 +199,14 @@ export default function MediaDetails() {
 
   return (
     <div className="relative min-h-screen pb-16">
-
+      {/* Downloading MPV Overlay */}
+      {isDownloadingMpv && (
+        <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm">
+            <Loader2 className="w-16 h-16 animate-spin text-primary mb-4" />
+            <h2 className="text-2xl font-bold text-white mb-2">Setting up high-performance player...</h2>
+            <p className="text-white/70">First-time setup, downloading MPV directly to app data...</p>
+        </div>
+      )}
 
       {/* Hero Banner */}
       <div className="absolute top-0 left-0 right-0 h-[50vh] w-full">
@@ -220,8 +299,9 @@ export default function MediaDetails() {
 
         {/* Right Column: Stream Selection Panel */}
         <div className="w-full lg:w-[35%] h-full bg-card/40 border border-border backdrop-blur-md rounded-xl p-4 overflow-y-auto shadow-xl flex flex-col">
-            <h3 className="text-xl font-bold text-foreground mb-4 sticky top-0 bg-card/80 backdrop-blur-md p-2 -mt-2 -mx-2 rounded-t-xl z-10">
+            <h3 className="text-xl font-bold text-foreground mb-4 sticky top-0 bg-card/80 backdrop-blur-md p-2 -mt-2 -mx-2 rounded-t-xl z-10 flex justify-between items-center">
                 Stream Providers
+                {isResolvingStream && <Loader2 className="w-5 h-5 animate-spin text-primary" />}
             </h3>
             
             {loadingStreams ? (
@@ -251,6 +331,12 @@ export default function MediaDetails() {
                                     <span className="bg-primary/20 text-primary text-xs px-2 py-0.5 rounded font-bold uppercase tracking-wider">
                                         {stream.name || "Unknown Provider"}
                                     </span>
+                                    {isExternalFormat(stream.url) && (
+                                      <span className="flex items-center gap-1 bg-amber-500/20 text-amber-400 text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider">
+                                        <MonitorPlay className="w-3 h-3" />
+                                        MPV
+                                      </span>
+                                    )}
                                 </div>
                                 <div className="flex flex-wrap gap-1.5 mb-2">
                                     {pills.map((p, i) => (

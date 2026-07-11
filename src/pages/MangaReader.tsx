@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Settings, ArrowLeft, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -21,6 +21,10 @@ export default function MangaReader() {
     const [currentPage, setCurrentPage] = useState(0);
     const [loadingPages, setLoadingPages] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    // Deduplication guard — prevents pushing progress twice per chapter session.
+    const chapterCompletedRef = useRef(false);
+    // Ref for the webtoon scroll container so we can observe scroll position.
+    const webtoonContainerRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         if (!mangaId) return;
@@ -35,6 +39,8 @@ export default function MangaReader() {
         if (!chapterId) return;
         setLoadingPages(true);
         setError(null);
+        // Reset completion guard whenever a new chapter is loaded.
+        chapterCompletedRef.current = false;
         invoke<string[]>("fetch_manga_pages", { chapterId })
             .then((urls) => {
                 setPages(urls);
@@ -47,11 +53,47 @@ export default function MangaReader() {
             .finally(() => setLoadingPages(false));
     }, [chapterId]);
 
+    // ─── Chapter Completion Handler ─────────────────────────────────────────
+    // Fire-and-forget: records chapter completion locally and pushes to AniList.
+    const pushChapterCompletion = useCallback(() => {
+        if (chapterCompletedRef.current) return; // Already pushed for this chapter.
+        if (!mangaId) return;
+        chapterCompletedRef.current = true;
+
+        const progressJson = JSON.stringify({
+            chapterId,
+            completed: true,
+            completedAt: new Date().toISOString(),
+        });
+
+        // 1. Persist completion locally.
+        invoke("update_media_progress", { id: mangaId, progressJson }).catch(console.error);
+
+        // 2. Push to AniList if available.
+        if (item) {
+            const externalIds = item.external_ids ? JSON.parse(item.external_ids) : {};
+            const anilistId: number | null = externalIds?.anilist ?? null;
+            // Derive chapter number from chapterId or fall back to null.
+            const chapterNum = chapterId ? parseInt(chapterId, 10) : null;
+            if (anilistId && chapterNum !== null && !isNaN(chapterNum)) {
+                invoke("push_progress_to_anilist", {
+                    anilistId,
+                    progress: chapterNum,
+                }).catch(console.error);
+            }
+        }
+    }, [mangaId, chapterId, item]);
+
     const toggleOverlays = () => setShowOverlays(!showOverlays);
 
     const handlePageTurn = (forward: boolean) => {
         if (forward) {
-            setCurrentPage(p => Math.min(pages.length - 1, p + 1));
+            const nextPage = Math.min(pages.length - 1, currentPage + 1);
+            setCurrentPage(nextPage);
+            // In paginated mode: reaching the last page = chapter complete.
+            if (nextPage === pages.length - 1 && pages.length > 0) {
+                pushChapterCompletion();
+            }
         } else {
             setCurrentPage(p => Math.max(0, p - 1));
         }
@@ -160,7 +202,18 @@ export default function MangaReader() {
                     onClick={handleCanvasClick}
                 >
                     {mode === "webtoon" ? (
-                        <div className="flex flex-col w-full max-w-3xl mx-auto bg-black">
+                        // Webtoon: vertical scroll. Completion = scroll near the bottom.
+                        <div
+                            ref={webtoonContainerRef}
+                            className="flex flex-col w-full max-w-3xl mx-auto bg-black overflow-y-auto"
+                            onScroll={(e) => {
+                                const el = e.currentTarget;
+                                const nearBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 200;
+                                if (nearBottom && pages.length > 0) {
+                                    pushChapterCompletion();
+                                }
+                            }}
+                        >
                             {pages.map((url, index) => (
                                 <img 
                                     key={index} 

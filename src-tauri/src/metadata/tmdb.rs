@@ -17,7 +17,7 @@ pub struct TmdbResult {
     pub media_type: Option<String>,
 }
 
-pub async fn search(query: &str, token: &str) -> Result<TmdbSearchResponse, String> {
+pub async fn search(query: &str, token: &str, allow_adult: bool) -> Result<TmdbSearchResponse, String> {
     let token = token.trim();
     let client = Client::new();
     let mut req = client.get("https://api.themoviedb.org/3/search/multi");
@@ -38,8 +38,9 @@ pub async fn search(query: &str, token: &str) -> Result<TmdbSearchResponse, Stri
         req = req.headers(headers).query(&[("api_key", token)]);
     }
 
+    let include_adult_str = if allow_adult { "true" } else { "false" };
     let res = req
-        .query(&[("query", query)])
+        .query(&[("query", query), ("include_adult", include_adult_str)])
         .send()
         .await
         .map_err(|e| {
@@ -62,7 +63,7 @@ pub async fn search(query: &str, token: &str) -> Result<TmdbSearchResponse, Stri
     }
 }
 
-pub async fn get_trending_anime(token: &str) -> Result<TmdbSearchResponse, String> {
+pub async fn get_trending_anime(token: &str, allow_adult: bool) -> Result<TmdbSearchResponse, String> {
     let token = token.trim();
     let client = Client::new();
     let mut req = client.get("https://api.themoviedb.org/3/discover/tv");
@@ -83,8 +84,9 @@ pub async fn get_trending_anime(token: &str) -> Result<TmdbSearchResponse, Strin
         req = req.headers(headers).query(&[("api_key", token)]);
     }
 
+    let include_adult_str = if allow_adult { "true" } else { "false" };
     let res = req
-        .query(&[("with_original_language", "ja"), ("with_genres", "16"), ("sort_by", "popularity.desc")])
+        .query(&[("with_original_language", "ja"), ("with_genres", "16"), ("sort_by", "popularity.desc"), ("include_adult", include_adult_str)])
         .send()
         .await
         .map_err(|e| {
@@ -101,10 +103,11 @@ pub async fn get_trending_anime(token: &str) -> Result<TmdbSearchResponse, Strin
     }
 }
 
-pub async fn get_trending(token: &str) -> Result<TmdbSearchResponse, String> {
+pub async fn get_trending(token: &str, allow_adult: bool) -> Result<TmdbSearchResponse, String> {
     let token = token.trim();
     let client = Client::new();
-    let mut req = client.get("https://api.themoviedb.org/3/trending/all/week");
+    // Use discover instead of trending so we can filter by include_adult
+    let mut req = client.get("https://api.themoviedb.org/3/discover/movie");
 
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert(
@@ -122,7 +125,9 @@ pub async fn get_trending(token: &str) -> Result<TmdbSearchResponse, String> {
         req = req.headers(headers).query(&[("api_key", token)]);
     }
 
+    let include_adult_str = if allow_adult { "true" } else { "false" };
     let res = req
+        .query(&[("sort_by", "popularity.desc"), ("include_adult", include_adult_str)])
         .send()
         .await
         .map_err(|e| {

@@ -22,3 +22,10 @@
 - [x] Phase 18: Extension Registry
 - [x] Phase 19: Anti-bot Fallback Chain
 - [ ] Phase 20: Local Source Provider
+- [x] Phase 21: Critical Audit Repairs (Code Repair Protocol)
+  - [x] CRITICAL-1: Fixed JS injection vulnerability in `extensions/mod.rs` — params now injected via `ctx.globals().set()` instead of `format!()` string interpolation
+  - [x] CRITICAL-2: Added QuickJS sandbox resource limits — `set_max_stack_size(512 KiB)`, `set_memory_limit(8 MiB)`, fixed pending-job loop with proper enum match
+  - [x] CRITICAL-3: Implemented global React `ErrorBoundary` in `App.tsx` — wraps `<RouterProvider>` with themed fallback UI (copy logs + relaunch buttons)
+  - [x] CRITICAL-4: Wired "Add to Library" hero button in `Discover.tsx` — calls `toggle_in_library`, syncs state with `check_in_library`, optimistic UI with rollback
+  - [x] CRITICAL-5: Completed two-way tracking loop in `Player.tsx` — `pushProgress()` fires on `onPause`, `onEnded`, and back-button click; calls `update_media_progress` + `push_progress_to_anilist`
+  - [x] CRITICAL-6: Completed two-way tracking loop in `MangaReader.tsx` — `pushChapterCompletion()` fires on final page turn (paginated) or scroll-to-bottom (webtoon)

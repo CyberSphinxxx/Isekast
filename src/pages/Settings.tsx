@@ -1,5 +1,5 @@
 import { useTheme } from "../components/ThemeProvider";
-import { KeyRound, Paintbrush, Link as LinkIcon, CheckCircle2 } from "lucide-react";
+import { KeyRound, Paintbrush, Link as LinkIcon, CheckCircle2, ShieldAlert } from "lucide-react";
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -11,6 +11,8 @@ export default function Settings() {
   const [hasAnilistToken, setHasAnilistToken] = useState<boolean>(false);
   const [anilistTokenInput, setAnilistTokenInput] = useState("");
   const [viewer, setViewer] = useState<any>(null);
+
+  const [allowAdultContent, setAllowAdultContent] = useState<boolean>(false);
 
   useEffect(() => {
     invoke<boolean>("get_tmdb_token_status")
@@ -24,6 +26,10 @@ export default function Settings() {
               invoke("get_anilist_viewer").then(setViewer).catch(console.error);
           }
       })
+      .catch(console.error);
+
+    invoke<string | null>("get_setting", { key: "allow_adult_content" })
+      .then(value => setAllowAdultContent(value === "true"))
       .catch(console.error);
   }, []);
 
@@ -68,6 +74,16 @@ export default function Settings() {
     }
   };
 
+  const toggleAdultContent = async () => {
+    const newVal = !allowAdultContent;
+    try {
+      await invoke("set_setting", { key: "allow_adult_content", value: newVal ? "true" : "false" });
+      setAllowAdultContent(newVal);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   return (
     <div className="p-8 max-w-4xl mx-auto space-y-12">
       <h1 className="text-3xl font-bold">Settings</h1>
@@ -94,6 +110,28 @@ export default function Settings() {
       </section>
 
 
+
+      {/* Content Preferences */}
+      <section className="space-y-4">
+        <div className="flex items-center gap-2 text-xl font-semibold border-b border-border pb-2">
+          <ShieldAlert className="w-5 h-5 text-primary" />
+          <h2>Content Preferences</h2>
+        </div>
+        <div className="bg-card p-6 rounded-lg border border-border space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <label className="block text-sm font-medium mb-1">Allow 18+ Adult Content</label>
+              <p className="text-sm text-muted-foreground">Show explicit movies, TV shows, and manga in search results and trending feeds.</p>
+            </div>
+            <button
+              onClick={toggleAdultContent}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${allowAdultContent ? 'bg-primary' : 'bg-muted-foreground'}`}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${allowAdultContent ? 'translate-x-6' : 'translate-x-1'}`} />
+            </button>
+          </div>
+        </div>
+      </section>
 
       {/* Security */}
       <section className="space-y-4">

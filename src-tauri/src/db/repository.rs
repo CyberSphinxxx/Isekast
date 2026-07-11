@@ -72,7 +72,9 @@ pub struct MediaItem {
 
 impl Database {
     pub async fn get_media_items(&self) -> Result<Vec<MediaItem>, String> {
-        sqlx::query_as::<_, MediaItem>("SELECT * FROM media_item")
+        sqlx::query_as::<_, MediaItem>(
+            "SELECT m.* FROM media_item m INNER JOIN media_item_collection c ON m.id = c.media_item_id WHERE c.collection_id = 'default_library'"
+        )
             .fetch_all(&self.pool)
             .await
             .map_err(|e| e.to_string())
@@ -406,6 +408,27 @@ impl Database {
             .execute(&self.pool)
             .await
             .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub async fn get_setting(&self, key: &str) -> Result<Option<String>, String> {
+        let row: Option<(String,)> = sqlx::query_as("SELECT value FROM settings WHERE key = ?")
+            .bind(key)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(row.map(|r| r.0))
+    }
+
+    pub async fn set_setting(&self, key: &str, value: &str) -> Result<(), String> {
+        sqlx::query(
+            "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
+        .bind(key)
+        .bind(value)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| e.to_string())?;
         Ok(())
     }
 }

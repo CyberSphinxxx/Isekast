@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
-import { ArrowLeft, Play, Pause, Maximize, Minimize, Volume2, VolumeX, SkipBack, SkipForward } from "lucide-react";
+import { ArrowLeft, Play, Pause, Maximize, Minimize, Volume2, VolumeX, SkipBack, SkipForward, MonitorPlay } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import Hls from "hls.js";
 import type { MediaItem } from "../types";
@@ -12,6 +12,16 @@ function formatTime(seconds: number): string {
     const s = Math.floor(seconds % 60);
     if (h > 0) return `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
     return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+/** Returns true for URLs whose file extension is not natively playable by HTML5 <video>. */
+function isNonBrowserFormat(url: string): boolean {
+  try {
+    const pathname = new URL(url).pathname.toLowerCase();
+    return /\.(mkv|avi|flv|wmv|mov|ts|rmvb|divx)$/.test(pathname);
+  } catch {
+    return false;
+  }
 }
 
 export default function Player() {
@@ -34,7 +44,11 @@ export default function Player() {
   const [isMuted, setIsMuted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showControls, setShowControls] = useState(true);
+  const [mpvError, setMpvError] = useState<string | null>(null);
+  const [isDownloadingMpv, setIsDownloadingMpv] = useState(false);
   const [isBuffering, setIsBuffering] = useState(true);
+  // Prevents duplicate progress pushes (e.g. double-firing on ended + pause).
+  const progressPushedRef = useRef(false);
 
   const state = location.state as { streamUrl?: string; streamTitle?: string } | null;
   const streamUrl = state?.streamUrl;
@@ -47,9 +61,90 @@ export default function Player() {
       .catch(console.error);
   }, [id]);
 
+  // ─── Progress Sync Helper ──────────────────────────────────────────────────
+  // Pushes current playback state to the local DB and AniList cloud.
+  // Fire-and-forget: errors are logged but never block the UI.
+  const pushProgress = useCallback(() => {
+    const video = videoRef.current;
+    if (!id || !video) return;
+    if (progressPushedRef.current) return; // Deduplicate
+    progressPushedRef.current = true;
+
+    const episodeNum = episodeId ? parseInt(episodeId, 10) : null;
+    const completed = video.duration > 0 && video.currentTime >= video.duration * 0.9;
+
+    const progressJson = JSON.stringify({
+      episode: episodeNum,
+      currentTime: video.currentTime,
+      duration: video.duration,
+      completed,
+      updatedAt: new Date().toISOString(),
+    });
+
+    // 1. Persist locally.
+    invoke("update_media_progress", { id, progressJson }).catch(console.error);
+
+    // 2. Push to AniList if we have an episode number and it's completed.
+    if (item && completed && episodeNum !== null) {
+      const externalIds = item.external_ids ? JSON.parse(item.external_ids) : {};
+      const anilistId: number | null = externalIds?.anilist ?? null;
+      if (anilistId) {
+        invoke("push_progress_to_anilist", {
+          anilistId,
+          progress: episodeNum,
+        }).catch(console.error);
+      }
+    }
+  }, [id, episodeId, item]);
+
+  // ─── MPV Launcher ───────────────────────────────────────────────────────────
+  const launchMpv = useCallback(async () => {
+    if (!streamUrl) return;
+    try {
+      await invoke("launch_external_player", {
+        url: streamUrl,
+        title: item?.title
+          ? `${item.title}${episodeId ? ` - Episode ${episodeId}` : ""}`
+          : undefined,
+      });
+      // MPV spawned — navigate back so the user isn't staring at a blank player.
+      navigate(-1);
+    } catch (e: any) {
+      const errMsg = typeof e === "string" ? e : e?.message ?? "Failed to launch mpv";
+      if (errMsg === "MPV_NOT_FOUND") {
+         downloadMpv();
+      } else {
+         setMpvError(errMsg);
+      }
+    }
+  }, [streamUrl, item, episodeId, navigate]);
+
+  const downloadMpv = async () => {
+      setIsDownloadingMpv(true);
+      setMpvError(null);
+      try {
+          await invoke("download_mpv");
+          // After successful download, try launching again
+          await launchMpv();
+      } catch (e: any) {
+          setMpvError(`Failed to download MPV: ${e.toString()}`);
+      } finally {
+          setIsDownloadingMpv(false);
+      }
+  };
+
+  // Auto-launch MPV for clearly non-browser formats instead of attempting HTML5 playback.
+  useEffect(() => {
+    if (streamUrl && isNonBrowserFormat(streamUrl)) {
+      launchMpv();
+    }
+  }, [streamUrl, launchMpv]);
+
   // HLS Setup
   useEffect(() => {
     if (!streamUrl || !videoRef.current) return;
+    // Reset dedup flag for each new stream load.
+    progressPushedRef.current = false;
     
     let hls: Hls | null = null;
     const video = videoRef.current;
@@ -229,7 +324,15 @@ export default function Player() {
         autoPlay
         onClick={togglePlay}
         onPlay={() => { setIsPlaying(true); resetHideTimeout(); }}
-        onPause={() => { setIsPlaying(false); setShowControls(true); }}
+        onPause={() => {
+            setIsPlaying(false);
+            setShowControls(true);
+            pushProgress();
+          }}
+        onEnded={() => {
+            // Ensure progress is recorded on natural completion.
+            pushProgress();
+          }}
         onTimeUpdate={() => {
           const v = videoRef.current;
           if (v) setCurrentTime(v.currentTime);
@@ -247,7 +350,7 @@ export default function Player() {
         onWaiting={() => setIsBuffering(true)}
         onPlaying={() => setIsBuffering(false)}
         onCanPlay={() => setIsBuffering(false)}
-        onError={(e) => {
+        onError={(_e) => {
           const v = videoRef.current;
           const code = v?.error?.code;
           const msg = v?.error?.message || "";
@@ -259,25 +362,43 @@ export default function Player() {
         }}
       />
 
-      {/* Buffering spinner */}
-      {isBuffering && !error && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
-          <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+      {/* Buffering or downloading spinner */}
+      {(isBuffering || isDownloadingMpv) && !error && !mpvError && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-20 bg-black/60 backdrop-blur-sm">
+          <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4" />
+          {isDownloadingMpv && (
+              <div className="text-white font-medium text-lg drop-shadow-md flex flex-col items-center">
+                  <p>Setting up high-performance player...</p>
+                  <p className="text-sm text-white/70 mt-1">(First-time setup, downloading MPV...)</p>
+              </div>
+          )}
         </div>
       )}
 
       {/* Error overlay */}
-      {error && (
+      {(error || mpvError) && (
         <div className="absolute inset-0 flex items-center justify-center z-30 bg-black/80">
           <div className="bg-card border border-destructive/50 text-card-foreground p-8 rounded-xl max-w-lg text-center shadow-2xl">
             <h2 className="font-bold text-xl mb-3 text-destructive">Playback Error</h2>
-            <p className="text-sm opacity-90 mb-6">{error}</p>
-            <button
-              onClick={() => navigate(-1)}
-              className="px-6 py-2.5 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors"
-            >
-              Go Back
-            </button>
+            <p className="text-sm opacity-90 mb-4">{error}</p>
+            {mpvError && (
+              <p className="text-xs text-destructive/80 mb-4">{mpvError}</p>
+            )}
+            <div className="flex gap-3 justify-center">
+              <button
+                onClick={launchMpv}
+                className="flex items-center gap-2 px-6 py-2.5 bg-secondary text-secondary-foreground rounded-lg font-medium hover:bg-secondary/80 transition-colors"
+              >
+                <MonitorPlay className="w-4 h-4" />
+                Open in MPV
+              </button>
+              <button
+                onClick={() => navigate(-1)}
+                className="px-6 py-2.5 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors"
+              >
+                Go Back
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -287,7 +408,7 @@ export default function Player() {
         className={`absolute top-0 left-0 right-0 z-20 p-6 flex items-center gap-4 bg-gradient-to-b from-black/80 to-transparent transition-opacity duration-300 ${showControls ? "opacity-100" : "opacity-0 pointer-events-none"}`}
       >
         <button
-          onClick={() => navigate(-1)}
+          onClick={() => { pushProgress(); navigate(-1); }}
           className="p-2 rounded-full hover:bg-white/20 text-white transition-colors"
         >
           <ArrowLeft className="w-7 h-7" />

@@ -1,5 +1,5 @@
-import { Search, Play, Plus, ChevronRight, ChevronLeft } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Search, Play, Plus, Check, ChevronRight, ChevronLeft } from "lucide-react";
+import { useEffect, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useNavigate } from "react-router-dom";
 import type { MediaItem } from "../types";
@@ -11,6 +11,8 @@ export default function Discover() {
   const [topManga, setTopManga] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Tracks whether the current hero spotlight item is in the user's library.
+  const [heroInLibrary, setHeroInLibrary] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -61,6 +63,32 @@ export default function Discover() {
 
   const openSearch = () => window.dispatchEvent(new Event('open-search-modal'));
 
+  // Sync heroInLibrary state whenever the spotlight item changes.
+  useEffect(() => {
+    const heroItem = trendingAnime[0] || popularMovies[0] || topManga[0];
+    if (!heroItem) return;
+    invoke<boolean>("check_in_library", { mediaItemId: heroItem.id })
+      .then(setHeroInLibrary)
+      .catch(console.error);
+  }, [trendingAnime, popularMovies, topManga]);
+
+  // Toggles the hero spotlight item in/out of the user's library.
+  const handleHeroLibraryToggle = useCallback(async () => {
+    const heroItem = trendingAnime[0] || popularMovies[0] || topManga[0];
+    if (!heroItem) return;
+    const nextState = !heroInLibrary;
+    setHeroInLibrary(nextState); // Optimistic update
+    try {
+      await invoke("toggle_in_library", {
+        mediaItemId: heroItem.id,
+        inLibrary: nextState,
+      });
+    } catch (err) {
+      console.error("Failed to toggle library:", err);
+      setHeroInLibrary(!nextState); // Rollback on failure
+    }
+  }, [heroInLibrary, trendingAnime, popularMovies, topManga]);
+
   const getImageUrl = (item: MediaItem, type: "poster" | "backdrop" = "poster") => {
     const path = type === "poster" ? item.poster_path : item.backdrop_path;
     if (!path) return "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b6/Image_created_with_a_mobile_phone.png/1200px-Image_created_with_a_mobile_phone.png";
@@ -110,9 +138,19 @@ export default function Discover() {
                 <Play className="w-5 h-5 fill-current" />
                 Play / Details
               </button>
-              <button className="flex items-center gap-2 bg-secondary text-secondary-foreground px-8 py-3 rounded-md font-bold hover:bg-secondary/80 transition-colors shadow-lg backdrop-blur-md">
-                <Plus className="w-5 h-5" />
-                Add to Library
+              <button
+                onClick={handleHeroLibraryToggle}
+                className={`flex items-center gap-2 px-8 py-3 rounded-md font-bold transition-all shadow-lg backdrop-blur-md ${
+                  heroInLibrary
+                    ? "bg-green-500/20 text-green-400 border border-green-500/40 hover:bg-green-500/30"
+                    : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                }`}
+              >
+                {heroInLibrary ? (
+                  <><Check className="w-5 h-5" /> In Library</>
+                ) : (
+                  <><Plus className="w-5 h-5" /> Add to Library</>
+                )}
               </button>
             </div>
           </div>

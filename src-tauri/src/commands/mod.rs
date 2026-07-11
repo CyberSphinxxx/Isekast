@@ -25,6 +25,16 @@ pub async fn toggle_in_library(media_item_id: String, in_library: bool, db: taur
 }
 
 #[tauri::command]
+pub async fn get_setting(key: String, db: tauri::State<'_, Database>) -> Result<Option<String>, String> {
+    db.get_setting(&key).await
+}
+
+#[tauri::command]
+pub async fn set_setting(key: String, value: String, db: tauri::State<'_, Database>) -> Result<(), String> {
+    db.set_setting(&key, &value).await
+}
+
+#[tauri::command]
 pub fn save_tmdb_token(app: tauri::AppHandle, token: String) -> Result<(), String> {
     secure::set_tmdb_token(&app, &token)
 }
@@ -99,7 +109,9 @@ pub async fn search_tmdb(
     if token.is_empty() {
         return Err("No TMDB token found".to_string());
     }
-    let tmdb_res = tmdb::search(query, &token).await?;
+    
+    let allow_adult = db.get_setting("allow_adult_content").await?.unwrap_or_else(|| "false".to_string()) == "true";
+    let tmdb_res = tmdb::search(query, &token, allow_adult).await?;
 
     let mut items = Vec::new();
     for res in tmdb_res.results {
@@ -146,7 +158,8 @@ pub async fn search_mangadex(
     query: &str,
     db: tauri::State<'_, Database>,
 ) -> Result<Vec<MediaItem>, String> {
-    let md_res = mangadex::search(query).await?;
+    let allow_adult = db.get_setting("allow_adult_content").await?.unwrap_or_else(|| "false".to_string()) == "true";
+    let md_res = mangadex::search(query, allow_adult).await?;
 
     let mut items = Vec::new();
     for res in md_res.data {
@@ -288,15 +301,13 @@ pub async fn get_progress_items(
 }
 
 #[tauri::command]
-pub async fn get_trending_anime(
-    app: tauri::AppHandle,
-    db: tauri::State<'_, Database>,
-) -> Result<Vec<MediaItem>, String> {
+pub async fn get_trending_anime(app: tauri::AppHandle, db: tauri::State<'_, Database>) -> Result<Vec<MediaItem>, String> {
     let token = secure::get_tmdb_token(&app)?.unwrap_or_default();
     if token.is_empty() {
         return Err("No TMDB token found".to_string());
     }
-    let tmdb_res = tmdb::get_trending_anime(&token).await?;
+    let allow_adult = db.get_setting("allow_adult_content").await?.unwrap_or_else(|| "false".to_string()) == "true";
+    let tmdb_res = tmdb::get_trending_anime(&token, allow_adult).await?;
 
     let mut items = Vec::new();
     for res in tmdb_res.results {
@@ -331,15 +342,13 @@ pub async fn get_trending_anime(
 }
 
 #[tauri::command]
-pub async fn get_trending_movies(
-    app: tauri::AppHandle,
-    db: tauri::State<'_, Database>,
-) -> Result<Vec<MediaItem>, String> {
+pub async fn get_trending_movies(app: tauri::AppHandle, db: tauri::State<'_, Database>) -> Result<Vec<MediaItem>, String> {
     let token = secure::get_tmdb_token(&app)?.unwrap_or_default();
     if token.is_empty() {
         return Err("No TMDB token found".to_string());
     }
-    let tmdb_res = tmdb::get_trending(&token).await?;
+    let allow_adult = db.get_setting("allow_adult_content").await?.unwrap_or_else(|| "false".to_string()) == "true";
+    let tmdb_res = tmdb::get_trending(&token, allow_adult).await?;
 
     let mut items = Vec::new();
     for res in tmdb_res.results {
@@ -374,10 +383,9 @@ pub async fn get_trending_movies(
 }
 
 #[tauri::command]
-pub async fn get_popular_manga(
-    db: tauri::State<'_, Database>,
-) -> Result<Vec<MediaItem>, String> {
-    let md_res = mangadex::get_popular_manga().await?;
+pub async fn get_popular_manga(db: tauri::State<'_, Database>) -> Result<Vec<MediaItem>, String> {
+    let allow_adult = db.get_setting("allow_adult_content").await?.unwrap_or_else(|| "false".to_string()) == "true";
+    let md_res = mangadex::get_popular_manga(allow_adult).await?;
 
     let mut items = Vec::new();
     for res in md_res.data {
@@ -593,6 +601,8 @@ pub struct StremioStream {
     pub name: Option<String>,
     pub title: Option<String>,
     pub url: Option<String>,
+    #[serde(rename = "infoHash", default)]
+    pub info_hash: Option<String>,
 }
 
 #[tauri::command]
@@ -697,6 +707,9 @@ pub async fn fetch_stremio_streams(
         }
     }
 
+    // Keep streams that have either a playable URL or an infoHash (torrent)
+    all_streams.retain(|s| s.url.is_some() || s.info_hash.is_some());
+
     Ok(all_streams)
 }
 
@@ -755,3 +768,12 @@ pub async fn fetch_manga_pages(
     mangadex::get_chapter_pages(&chapter_id).await
 }
 
+#[tauri::command]
+pub async fn stream_torrent(
+    info_hash: String,
+    torrent_state: tauri::State<'_, crate::torrent::TorrentState>,
+) -> Result<String, String> {
+    let guard = torrent_state.0.read().await;
+    let streamer = guard.as_ref().ok_or("Torrent streaming engine is not initialized")?;
+    streamer.stream_torrent(&info_hash).await
+}

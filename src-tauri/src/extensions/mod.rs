@@ -9,6 +9,13 @@ pub async fn execute_scraper(script: &str, r#type: &str, id: &str) -> Result<Str
     
     std::thread::spawn(move || {
         let rt = Runtime::new().unwrap();
+
+        // === Sandbox Resource Limits ===
+        // Prevent infinite loops from consuming all stack space.
+        rt.set_max_stack_size(512 * 1024); // 512 KiB stack limit
+        // Prevent OOM: restrict the JS heap to 8 MiB.
+        rt.set_memory_limit(8 * 1024 * 1024); // 8 MiB memory limit
+
         let ctx = Context::full(&rt).unwrap();
         
         ctx.with(|ctx| {
@@ -18,14 +25,22 @@ pub async fn execute_scraper(script: &str, r#type: &str, id: &str) -> Result<Str
             }).unwrap();
             
             ctx.globals().set("rustCallback", callback).unwrap();
+
+            // === Secure Parameter Passing ===
+            // Parameters are injected as typed globals, not interpolated into the
+            // raw JS source string, eliminating the code injection vector.
+            ctx.globals().set("__SCRAPER_TYPE__", type_val).unwrap();
+            ctx.globals().set("__SCRAPER_ID__", id_val).unwrap();
             
+            // The wrapper invokes getStreams using the pre-set global variables
+            // rather than string-formatted arguments.
             let wrapper = format!(
                 r#"
                 {}
-                
+
                 async function runWrapper() {{
                     try {{
-                        let res = await getStreams('{}', '{}');
+                        let res = await getStreams(__SCRAPER_TYPE__, __SCRAPER_ID__);
                         rustCallback(JSON.stringify(res));
                     }} catch (e) {{
                         rustCallback(JSON.stringify({{ error: e.toString() }}));
@@ -33,18 +48,15 @@ pub async fn execute_scraper(script: &str, r#type: &str, id: &str) -> Result<Str
                 }}
                 runWrapper();
                 "#,
-                script, type_val, id_val
+                script
             );
             
             let _ = ctx.eval::<(), _>(wrapper);
-            // Loop until no more jobs or error
-            loop {
-                let res = ctx.execute_pending_job();
-                let debug = format!("{:?}", res);
-                if debug.contains("false") || debug.contains("Err") {
-                    break;
-                }
-            }
+            // Drain the microtask/job queue until exhausted.
+            // rquickjs 0.8: execute_pending_job() returns bool —
+            //   true  = a job was executed (keep draining)
+            //   false = queue is empty (stop)
+            while ctx.execute_pending_job() {}
         });
     });
     

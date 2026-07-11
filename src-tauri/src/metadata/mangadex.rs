@@ -38,14 +38,26 @@ pub struct MangaDexAttributes {
     pub status: Option<String>,
 }
 
-pub async fn search(query: &str) -> Result<MangaDexSearchResponse, String> {
+pub async fn search(query: &str, allow_adult: bool) -> Result<MangaDexSearchResponse, String> {
     let client = Client::builder()
         .user_agent("Isekast/0.1.0")
         .build()
         .unwrap_or_else(|_| Client::new());
+        
+    let mut q = vec![
+        ("title", query.to_string()), 
+        ("includes[]", "cover_art".to_string()),
+        ("contentRating[]", "safe".to_string()),
+        ("contentRating[]", "suggestive".to_string())
+    ];
+    if allow_adult {
+        q.push(("contentRating[]", "erotica".to_string()));
+        q.push(("contentRating[]", "pornographic".to_string()));
+    }
+
     let res = client
         .get("https://api.mangadex.org/manga")
-        .query(&[("title", query), ("includes[]", "cover_art")])
+        .query(&q)
         .send()
         .await
         .map_err(|e| e.to_string())?;
@@ -59,14 +71,27 @@ pub async fn search(query: &str) -> Result<MangaDexSearchResponse, String> {
     }
 }
 
-pub async fn get_popular_manga() -> Result<MangaDexSearchResponse, String> {
+pub async fn get_popular_manga(allow_adult: bool) -> Result<MangaDexSearchResponse, String> {
     let client = Client::builder()
         .user_agent("Isekast/0.1.0")
         .build()
         .unwrap_or_else(|_| Client::new());
+        
+    let mut q = vec![
+        ("order[followedCount]", "desc".to_string()), 
+        ("limit", "15".to_string()), 
+        ("includes[]", "cover_art".to_string()),
+        ("contentRating[]", "safe".to_string()),
+        ("contentRating[]", "suggestive".to_string())
+    ];
+    if allow_adult {
+        q.push(("contentRating[]", "erotica".to_string()));
+        q.push(("contentRating[]", "pornographic".to_string()));
+    }
+
     let res = client
         .get("https://api.mangadex.org/manga")
-        .query(&[("order[followedCount]", "desc"), ("limit", "15"), ("includes[]", "cover_art")])
+        .query(&q)
         .send()
         .await
         .map_err(|e| e.to_string())?;

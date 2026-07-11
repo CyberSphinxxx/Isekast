@@ -10,6 +10,7 @@ pub mod secure;
 pub mod sync;
 pub mod downloads;
 pub mod local_source;
+pub mod torrent;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -45,6 +46,22 @@ pub fn run() {
                 handle.manage(db);
                 handle.manage(downloader::AntibotState::new());
                 handle.manage(downloads::DownloadManager::new());
+
+                // Initialize the torrent streaming engine
+                let torrent_state = torrent::TorrentState::new();
+                let app_data_dir = handle.path().app_data_dir()
+                    .expect("Failed to get app data dir");
+                let torrent_download_dir = app_data_dir.join("torrent_cache");
+                match torrent::TorrentStreamer::new(torrent_download_dir).await {
+                    Ok(streamer) => {
+                        *torrent_state.0.write().await = Some(streamer);
+                        eprintln!("[torrent] Streaming engine started");
+                    }
+                    Err(e) => {
+                        eprintln!("[torrent] Failed to start streaming engine: {e}");
+                    }
+                }
+                handle.manage(torrent_state);
             });
             Ok(())
         })
@@ -53,6 +70,8 @@ pub fn run() {
             commands::get_media_item_by_id,
             commands::check_in_library,
             commands::toggle_in_library,
+            commands::get_setting,
+            commands::set_setting,
             commands::save_tmdb_token,
             commands::get_tmdb_token_status,
             commands::delete_tmdb_token,
@@ -89,7 +108,10 @@ pub fn run() {
             commands::toggle_stremio_addon,
             commands::fetch_manga_chapters,
             commands::fetch_manga_pages,
-            local_source::scan_local_media
+            local_source::scan_local_media,
+            player::launch_external_player,
+            player::download_mpv,
+            commands::stream_torrent
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
